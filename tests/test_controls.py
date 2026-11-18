@@ -29,7 +29,10 @@ class SchemaTest(unittest.TestCase):
     def test_watch_requires_window_and_route(self):
         with self.assertRaises(schema.ValidationError):
             schema.watch({"id": "w", "kind": "flight"})
-        schema.watch({"id": "w", "kind": "safety", "depart_window": {"from": "2027-04-01"}})
+        with self.assertRaises(schema.ValidationError):   # not confirmed by the user
+            schema.watch({"id": "w", "kind": "safety", "depart_window": {"from": "2027-04-01"}})
+        schema.watch({"id": "w", "kind": "safety", "depart_window": {"from": "2027-04-01"},
+                      "confirmed_by_user": {"evidence": "yes", "date": "2026-11-18"}})
 
 
 class ProfileTest(unittest.TestCase):

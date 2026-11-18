@@ -21,6 +21,23 @@ def load_all(cfg, errors=None):
     return out
 
 
+def add(cfg, src, confirmed_by_user, today=None):
+    """Create or update a watch from a YAML file, stamped with the user's quoted yes."""
+    import yaml
+    from .trips import user_confirmation
+    w = config.load_yaml(src)
+    w.setdefault("id", src.stem)
+    w["confirmed_by_user"] = user_confirmation(confirmed_by_user, today)
+    w.setdefault("active", True)
+    schema.watch(w)
+    d = config.path(cfg, "watches_dir")
+    d.mkdir(parents=True, exist_ok=True)
+    dest = d / f"{w['id']}.yaml"
+    existed = dest.exists()
+    dest.write_text(yaml.safe_dump(w, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return {"watch": w["id"], "path": str(dest), "updated" if existed else "created": True}
+
+
 def _first_depart(w):
     win = w.get("depart_window") or {}
     v = win.get("from")

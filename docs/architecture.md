@@ -35,6 +35,7 @@ Move to **Standard** if bookings or payments, a paid API, multiple users or mess
 | Accept an extracted price (tier, exact dates in window, price present in verbatim excerpt) | code | `reliability.check_flight_observation` |
 | Schedule the buy/wait follow-up | code (`recheck_date` → `advise_recheck`) | `store.set_recheck`, `watches.due` |
 | Verify alerts and suspects, write the final message | main model | skill §4, §7 |
+| Approve monitoring (which watches, the scheduled task, restarting a parked trip) | user, quoted as evidence | `tw watch add`, `tw trip set --to monitoring`, `tw trip resume` require `--confirmed-by-user` |
 | Pick an option, override, book, pay | user | outside the system |
 
 ## 3. Pattern
@@ -147,6 +148,9 @@ Date: 2026-11-18 · Status: accepted
 | 11 | `tw advise` says WAIT with 3 verified prices | Verdict shown with low confidence and "history too short"; on `recheck_date` the round re-advises (no new task) |
 | 14 | fare-reader returns 612€ but the excerpt says 621€ | `tw watch record` rejects it |
 | 15 | fare-reader re-reads its own low fare | Still `pending_confirmation`; only another site or the main model confirms |
+| 17 | User picks an option and says nothing about monitoring | Monitoring plan proposed; no watch, no task, status stays `chosen` |
+| 18 | "Yes, but only flights" | Only flight watches added with that sentence as evidence; no safety watch |
+| 19 | Resume a parked trip | Preview diff first; watches restart only after a yes |
 | 16 | WAIT verdict during the first 14 days | Logged (`tw verdicts`), not notified; confirmed price alerts and safety/entry changes are still notified |
 | 12 | Model finds an airline sale ending tomorrow, advisor says WAIT | Both shown: verdict + explicit disagreement with source; user decides |
 | 13 | No watch due | Round stops after `tw watch due`, no web access, no message |

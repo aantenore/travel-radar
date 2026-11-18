@@ -82,9 +82,18 @@ def _check(trip, to):
         raise schema.ValidationError([f"transition {cur} -> {to} not allowed{hint}; allowed: {sorted(TRANSITIONS[cur]) or 'none'}"])
 
 
-def set_status(cfg, trip_id, to, option=None):
+def user_confirmation(evidence, today=None):
+    """The user's explicit yes, quoted. Required to start or restart monitoring."""
+    if not evidence or not str(evidence).strip():
+        raise schema.ValidationError(["--confirmed-by-user is required: quote the user's explicit yes to the proposed monitoring plan"])
+    return {"evidence": str(evidence).strip(), "date": (today or date.today()).isoformat()}
+
+
+def set_status(cfg, trip_id, to, option=None, confirmed_by_user=None):
     trip = load(cfg, trip_id)
     _check(trip, to)
+    if to == "monitoring":
+        trip["monitoring_confirmed_by_user"] = user_confirmation(confirmed_by_user)
     if to == "chosen":
         if not option or not any(o.get("id") == option for o in trip.get("options") or []):
             raise schema.ValidationError([f"--option must name one of the trip options to choose"])
@@ -181,18 +190,25 @@ def _diff_prices(snap, now):
     return out
 
 
-def resume(cfg, con, trip_id, today=None):
+def resume(cfg, con, trip_id, today=None, confirmed_by_user=None):
+    """Without confirmation: preview only (what changed, which watches would restart), nothing saved.
+    With the user's quoted yes: reactivate the paused watches and restore the previous status."""
     today = today or date.today()
     trip = load(cfg, trip_id)
     parked = trip.get("parked")
     if trip.get("status") != "parked" or not parked:
         raise schema.ValidationError([f"trip {trip_id} is not parked"])
+    apply = confirmed_by_user is not None
+    confirmation = user_confirmation(confirmed_by_user, today) if apply else None
     resumed = []
     for f, w in _trip_watch_files(cfg, trip_id):
-        if w.pop("paused_by_trip", False):
-            w["active"] = True
-            _save_watch(f, w)
+        if w.get("paused_by_trip"):
             resumed.append(w["id"])
+            if apply:
+                w.pop("paused_by_trip")
+                w["active"] = True
+                w["confirmed_by_user"] = confirmation
+                _save_watch(f, w)
     snap = parked.get("snapshot") or {}
     now = snapshot(cfg, con, trip, today)
     d_before, d_now = snap.get("dossier") or {}, now.get("dossier") or {}
@@ -203,13 +219,16 @@ def resume(cfg, con, trip_id, today=None):
     h_before, h_now = snap.get("holidays"), now.get("holidays")
     new_holidays = sorted(set(h_now) - set(h_before or [])) if isinstance(h_now, list) else h_now
     days = (today - _as_date(parked["since"])).days
-    trip["status"] = parked["previous_status"]
-    trip.setdefault("history", []).append({**{k: v for k, v in parked.items() if k != "snapshot"},
-                                           "resumed": today.isoformat()})
-    del trip["parked"]
-    save(cfg, trip)
+    if apply:
+        trip["status"] = parked["previous_status"]
+        trip.setdefault("history", []).append({**{k: v for k, v in parked.items() if k != "snapshot"},
+                                               "resumed": today.isoformat(), "confirmed_by_user": confirmation})
+        del trip["parked"]
+        save(cfg, trip)
     return {
-        "trip": trip_id, "status": trip["status"], "days_parked": days, "resumed_watches": resumed,
+        "trip": trip_id, "preview": not apply,
+        "status": trip["status"] if apply else f"parked (would return to {parked['previous_status']})",
+        "days_parked": days, ("resumed_watches" if apply else "watches_to_restart"): resumed,
         "prices": _diff_prices(snap.get("prices") or {}, now["prices"]),
         "reverify_now": stale,   # includes safety/entry when older than their max age
         "dossier_status_changes": status_changes,

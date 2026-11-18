@@ -89,6 +89,9 @@ def watch(w):
             if not w.get(k):
                 e.append(f"watch {w.get('id')}: {k} missing")
     _nonneg(e, f"watch {w.get('id')}.budget_eur", w.get("budget_eur"))
+    c = w.get("confirmed_by_user")
+    if not (isinstance(c, dict) and str(c.get("evidence") or "").strip() and c.get("date")):
+        e.append(f"watch {w.get('id')}: not confirmed by the user; create it with `tw watch add <file> --confirmed-by-user \"<user's yes>\"`")
     if w.get("haul") is not None and w["haul"] not in ("long", "short"):
         e.append(f"watch {w.get('id')}: haul must be long or short")
     for k in ("peak", "one_way"):

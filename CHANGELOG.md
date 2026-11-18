@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 - 2026-11-18
+
+Monitoring is proposed, never started on its own.
+- After an option is chosen the skill proposes the monitoring plan (watches, cadence, scheduled task, token cost) and creates it only after the user's explicit yes; a partial yes creates only that part. Same for `/travel-radar:monitor setup`, promoted ideas and resumed trips.
+- Code guard: `tw watch add <draft> --confirmed-by-user "<user's yes>"` is the only way to activate a watch; watches without `confirmed_by_user` are reported as invalid and never checked. `tw trip set --to monitoring` and `tw trip resume` also require `--confirmed-by-user`; `tw trip resume` without it is a preview.
+- **Breaking**: watches created before 0.5.0 are reported as invalid until re-added with `tw watch add` and the user's yes.
+
 ## 0.4.1 - 2026-11-18
 
 - Tier 1 sources: added Brussels Airlines, Sichuan Airlines, Saudia, Xiamen Airlines and Hainan (hnair.com); regional subdomains allowed for China Eastern, China Southern, Hainan, Sichuan, Xiamen and Cathay Pacific (e.g. it.ceair.com). Air China alternate domains (airchina.it, airchina.com.cn) already matched.

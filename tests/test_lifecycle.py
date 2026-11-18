@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "trav
 
 import yaml  # noqa: E402
 
-from tw import config, export, ideas, schema, store, trips  # noqa: E402
+from tw import config, export, ideas, schema, store, trips, watches  # noqa: E402
 
 TODAY = date(2026, 11, 18)
 
@@ -53,7 +53,10 @@ class TransitionTest(Base):
         with self.assertRaises(schema.ValidationError):
             trips.set_status(self.cfg, "t2", "chosen", option="zzz")
         trips.set_status(self.cfg, "t2", "chosen", option="a")
-        trips.set_status(self.cfg, "t2", "monitoring")
+        with self.assertRaises(schema.ValidationError):
+            trips.set_status(self.cfg, "t2", "monitoring")          # no user yes
+        trips.set_status(self.cfg, "t2", "monitoring", confirmed_by_user="yes, monitor it")
+        self.assertEqual(trips.load(self.cfg, "t2")["monitoring_confirmed_by_user"]["evidence"], "yes, monitor it")
         trips.done(self.cfg, "t2")
         with self.assertRaises(schema.ValidationError):
             trips.set_status(self.cfg, "t2", "planning")
@@ -74,8 +77,16 @@ class ParkResumeTest(Base):
         self.assertEqual(trips.reminders(self.cfg, date(2027, 2, 1))[0]["trip"], "t1")
 
         store.add_observation(self.con, "w1", 720, "s", "http://y", ts=(now + timedelta(days=60)).isoformat())
-        diff = trips.resume(self.cfg, self.con, "t1", today=TODAY + timedelta(days=60))
+        preview = trips.resume(self.cfg, self.con, "t1", today=TODAY + timedelta(days=60))
+        self.assertTrue(preview["preview"])
+        self.assertEqual(preview["watches_to_restart"], ["w1"])
+        self.assertFalse(self.watch()["active"])
+        self.assertEqual(trips.load(self.cfg, "t1")["status"], "parked")
+        with self.assertRaises(schema.ValidationError):
+            trips.resume(self.cfg, self.con, "t1", today=TODAY, confirmed_by_user="  ")
+        diff = trips.resume(self.cfg, self.con, "t1", today=TODAY + timedelta(days=60), confirmed_by_user="ok riprendilo")
         self.assertTrue(self.watch()["active"])
+        self.assertEqual(self.watch()["confirmed_by_user"]["evidence"], "ok riprendilo")
         self.assertNotIn("paused_by_trip", self.watch())
         self.assertEqual(diff["status"], "monitoring")
         self.assertEqual(diff["prices"]["w1"]["change_pct"], -20.0)
@@ -93,6 +104,31 @@ class ParkResumeTest(Base):
         self.assertEqual(r["stopped_watches"], ["w1"])
         self.assertFalse(self.watch()["active"])
         self.assertTrue(r["debrief_topics"])
+
+
+class WatchConfirmationTest(Base):
+    def draft(self, **kw):
+        w = {"id": "w9", "kind": "flight", "trip": "t1", "origin": ["FCO"], "destination": ["PEK"],
+             "depart_window": {"from": "2027-06-01"}, **kw}
+        f = self.home / "trips" / "draft-w9.yaml"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(yaml.safe_dump(w))
+        return f
+
+    def test_unconfirmed_watch_is_invalid_and_never_due(self):
+        (self.home / "watches" / "w9.yaml").write_text(self.draft().read_text())
+        invalid = []
+        self.assertEqual(watches.load_all(self.cfg, invalid), [])
+        self.assertIn("not confirmed by the user", invalid[0]["errors"][0])
+
+    def test_add_requires_and_stores_the_users_yes(self):
+        with self.assertRaises(schema.ValidationError):
+            watches.add(self.cfg, self.draft(), "")
+        r = watches.add(self.cfg, self.draft(), "sì, solo i voli", today=TODAY)
+        self.assertTrue(r["created"])
+        w = watches.load_all(self.cfg)[0]
+        self.assertEqual((w["id"], w["confirmed_by_user"]["evidence"]), ("w9", "sì, solo i voli"))
+        self.assertTrue(watches.add(self.cfg, self.draft(budget_eur=700), "sì")["updated"])
 
 
 class IdeasTest(Base):

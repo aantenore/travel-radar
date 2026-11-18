@@ -59,10 +59,11 @@ def _parser():
     tsub.add_parser("list")
     ts = tsub.add_parser("set", help="change status (validated transitions)")
     ts.add_argument("trip"); ts.add_argument("--to", required=True); ts.add_argument("--option")
+    ts.add_argument("--confirmed-by-user", help="the user's explicit yes (required for --to monitoring)")
     tp = tsub.add_parser("park", help="pause a trip and its watches, keep a snapshot")
     tp.add_argument("trip"); tp.add_argument("--reason", required=True); tp.add_argument("--until")
-    tr = tsub.add_parser("resume", help="reactivate and show what changed since parking")
-    tr.add_argument("trip")
+    tr = tsub.add_parser("resume", help="preview what changed; with --confirmed-by-user, reactivate")
+    tr.add_argument("trip"); tr.add_argument("--confirmed-by-user")
     td = tsub.add_parser("done", help="close the trip, stop watches, return debrief topics")
     td.add_argument("trip")
 
@@ -80,6 +81,8 @@ def _parser():
     wsub = sub.add_parser("watch").add_subparsers(dest="wcmd", required=True)
     wsub.add_parser("list")
     wsub.add_parser("due")
+    wa = wsub.add_parser("add", help="create/update a watch after the user's explicit yes")
+    wa.add_argument("file"); wa.add_argument("--confirmed-by-user", required=True)
     r = wsub.add_parser("record")
     r.add_argument("--watch", required=True); r.add_argument("--price-eur", type=float, required=True)
     r.add_argument("--source", required=True); r.add_argument("--url", required=True)
@@ -141,8 +144,12 @@ def _run(a, cfg):
         return _out(dossier.check(checklist, config.load_yaml(Path(a.dossier_file))))
     if a.cmd == "validate":
         data = config.load_yaml(Path(a.file))
-        (schema.trip if a.kind == "trip" else schema.watch)(data)
-        return _out({"valid": True})
+        if a.kind == "trip":
+            schema.trip(data)
+            return _out({"valid": True})
+        confirmed = bool(data.get("confirmed_by_user"))
+        schema.watch({**data, "confirmed_by_user": data.get("confirmed_by_user") or {"evidence": "draft", "date": "draft"}})
+        return _out({"valid": True, "confirmed_by_user": confirmed})
     if a.cmd == "profile":
         prof = config.profile(cfg)
         if a.pcmd == "show":
@@ -170,11 +177,11 @@ def _run(a, cfg):
         if a.tcmd == "list":
             return _out(trips.list_all(cfg))
         if a.tcmd == "set":
-            return _out(trips.set_status(cfg, a.trip, a.to, a.option))
+            return _out(trips.set_status(cfg, a.trip, a.to, a.option, a.confirmed_by_user))
         if a.tcmd == "park":
             return _out(trips.park(cfg, con, a.trip, a.reason, a.until))
         if a.tcmd == "resume":
-            return _out(trips.resume(cfg, con, a.trip))
+            return _out(trips.resume(cfg, con, a.trip, confirmed_by_user=a.confirmed_by_user))
         return _out(trips.done(cfg, a.trip))
     if a.cmd == "idea":
         if a.icmd == "add":
@@ -206,6 +213,8 @@ def _run(a, cfg):
         rem, ids = trips.reminders(cfg), ideas.due(cfg, con)
         nothing = not any(x.get("due") for x in ws) and not rem and not ids and not invalid
         return _out({"nothing_due": nothing, "watches": ws, "invalid": invalid, "reminders": rem, "ideas": ids})
+    if a.wcmd == "add":
+        return _out(watches.add(cfg, Path(a.file).expanduser(), a.confirmed_by_user))
     if a.wcmd == "record":
         w = _watch(cfg, a.watch)
         tier = None

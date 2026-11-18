@@ -54,7 +54,7 @@ Travel Radar will:
 3. Research climate, holidays and crowds, safety, costs and current flight prices.
 4. Score the options against your profile and show up to 3, with sources, local places and risks.
 5. Answer "book now or wait" from current prices and sources, not from guesses.
-6. When you pick an option, build a destination dossier and offer to monitor flights and safety.
+6. When you pick an option, build a destination dossier and **propose** a monitoring plan: which flights and risks to watch, how often, and that each round uses tokens. Nothing is monitored until you say yes; you can accept only part of it ("only flights").
 
 You can also start with an explicit command: `/travel-radar:trip 2-3 weeks in China in June 2027, solo`.
 
@@ -63,7 +63,7 @@ You can also start with an explicit command: `/travel-radar:trip 2-3 weeks in Ch
 - **No command needed.** The skill triggers on any travel request: destination ideas, best period, flight timing, itinerary options, monitor status.
 - **No setup interview.** The profile starts empty and fills in from what you say. Preferences are saved only from your own words, each with the sentence that justified it.
 - **Requests that conflict with your profile.** If you ask for something your profile says you avoid (e.g. heat), you get the requested option with the conflicts spelled out, plus 1-2 alternatives that fit. Say "I want it anyway" and it simply follows you, without turning that into a general rule.
-- **Automatic monitoring.** After you pick an option, it creates watches and one scheduled task: a desktop-app scheduled task, or `/loop` for the current session. Each round checks only the watches that are due. Cadence depends on how close departure is: daily when more than 60 days away, twice a day within 60 days, 4 times a day within 14. A notification arrives only when something happens:
+- **Monitoring, only with your yes.** After you pick an option it proposes the watches and one scheduled task (a desktop-app scheduled task, or `/loop` for the current session) and creates them only after your explicit yes, quoting your words in each watch. The same applies to `/travel-radar:monitor setup`, ideas turned into trips, and resuming a parked trip. Each round checks only the watches that are due. Cadence depends on how close departure is: daily when more than 60 days away, twice a day within 60 days, 4 times a day within 14. A notification arrives only when something happens:
   - price under budget;
   - new all-time low;
   - drop versus the median;
@@ -92,7 +92,7 @@ You can also start with an explicit command: `/travel-radar:trip 2-3 weeks in Ch
 ## Park, resume, ideas, export
 
 - **Park a trip.** "Let's put the China trip on hold until March" pauses the trip and its watches, nothing is deleted, and stores a snapshot. With a date, the monitoring round reminds you when it's time to look again.
-- **Resume it.** You get a "what changed since you parked it":
+- **Resume it.** You first get a preview of "what changed since you parked it"; monitoring restarts only if you say yes. The preview covers:
   - price changes;
   - dossier items now too old, which are re-verified before any advice, safety and entry rules first;
   - safety or visa status changes;

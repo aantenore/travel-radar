@@ -21,7 +21,7 @@ User data lives in the data home (`$TRAVEL_RADAR_HOME`, default `~/.travel-radar
 | Check a destination dossier | `tw dossier-check <home>/trips/<id>/dossier.yaml` |
 | Validate a file before use | `tw validate trip|watch <file>` |
 | Profile | `tw profile show` / `tw profile set --key avoid.temp_max_c --value 30 --evidence "<user's words>"` |
-| Watches | `tw watch list | due | record | checked | evaluate | report` |
+| Watches | `tw watch add <draft> --confirmed-by-user "<user's yes>" | list | due | record | checked | evaluate | report` |
 | Trip lifecycle | `tw trip list | set <id> --to <status> [--option a] | park <id> --reason "..." [--until DATE] | resume <id> | done <id>` |
 | Idea inbox | `tw idea add "<place or wish>" [--best-months 4,5] | list | checked <id> | promote <id> --trip <trip-id> | drop <id>` |
 | Buy or wait | `tw advise --watch <id>` / history: `tw verdicts --watch <id>` |
@@ -54,7 +54,7 @@ Read the profile (`tw profile show`) at the start of every request. **Never edit
 5. **Present**: at most 3 options. For each: why it fits the user, period, flights found (price + link + date), rough itinerary with 2-3 concrete local places (with source), risks. Flight prices only from tier 1/2 sources with exact dates (section 8). If asked whether to book now or wait, use section 7.
 6. **Request conflicts with the profile** (`conflicts` not empty) and no explicit override → show the requested option with the conflicts spelled out **plus** 1-2 conforming alternatives (same idea, other period or place). With an explicit override → proceed without unrequested alternatives.
 7. **User picks an option** → `tw trip set <id> --to chosen --option <option id>`; record booking deadlines you researched (visa lead time, train ticket release dates…) in `deadlines` with source; full dossier `<home>/trips/<id>/dossier.yaml` covering every item of `tw checklist`; run `tw dossier-check` until `issues` is empty or only declared `unknown` items remain. Report blockers and warnings.
-8. **Monitor**: create watches (section 2) with `trip: <id>`, `tw trip set <id> --to monitoring`, and the scheduled task (section 3). Offer `tw export ics` / `tw export brief`.
+8. **Monitoring: propose, never create on your own** (section 2.1). Offer `tw export ics` / `tw export brief`.
 9. **Feedback**: the user's reactions to options → section 0.
 
 ### `trip.yaml` schema
@@ -94,7 +94,7 @@ items:
 
 ## 2. Watches
 
-One file per watch in `<home>/watches/<id>.yaml`; validate with `tw validate watch <file>`:
+Draft each watch as `<home>/trips/<trip>/drafts/<id>.yaml` and check it with `tw validate watch <draft>`. It becomes active only through `tw watch add` (section 2.1):
 ```yaml
 id: fco-pek-2027-06
 kind: flight                # flight | safety | weather | deal
@@ -111,9 +111,23 @@ active: true
 ```
 `kind: safety` → re-verify destination safety and entry rules, update the dossier; `kind: weather` → `tw forecast` once departure is < 16 days away.
 
+### 2.1 Monitoring needs the user's explicit yes
+
+Monitoring runs on its own and spends tokens, so it is always proposed first and created only on an explicit yes.
+1. Propose the plan in one compact block:
+   - each watch: kind, route/airports, departure window, trip length, budget if any;
+   - the cadence the code applies (`cadence` in config: e.g. 1/day beyond 60 days, 2/day within 60, 4/day within 14);
+   - whether the monitoring task will be created or an existing one reused;
+   - that each round uses tokens, and that the first `rollout.shadow_days` days are silent for buy/wait verdicts.
+   Then ask one question: which parts to activate.
+2. Explicit yes → for each accepted watch `tw watch add <draft> --confirmed-by-user "<user's exact words>"`, then `tw trip set <id> --to monitoring --confirmed-by-user "<same words>"`, then the scheduled task (section 3) if the user accepted it.
+3. Partial yes ("only flights") → create only that part; say what was left out.
+4. No answer, "maybe", "later" or a change request → create nothing; revise the proposal if asked.
+The same rule applies to `/travel-radar:monitor setup`, to trips promoted from ideas, and to resuming a parked trip. Watch files without `confirmed_by_user` are reported as `invalid` and never checked.
+
 ## 3. Scheduled task
 
-Create a single scheduled task (desktop app scheduled tasks: `create_scheduled_task`) every `research.monitor_every_h` hours (config), with this prompt:
+Only after the user's yes (section 2.1): create a single scheduled task (desktop app scheduled tasks: `create_scheduled_task`) every `research.monitor_every_h` hours (config), with this prompt:
 
 > Use the travel-radar skill, section 4 (monitoring round).
 
@@ -139,12 +153,12 @@ Keep it cheap:
 ## 5. Park, resume, done
 
 - "Let's put this on hold" → `tw trip park <id> --reason "<user's words>" [--until <date if the user gave one>]`. Watches are paused (not deleted) and a snapshot is stored.
-- "Let's pick it up again" → `tw trip resume <id>`. Present the diff it returns: price changes since parking, `reverify_now` items (re-verify them online before giving advice, safety and entry first), dossier status changes, new holidays in the window, score changes.
+- "Let's pick it up again" → `tw trip resume <id>` first runs as a **preview**: nothing is restarted. Present the diff it returns, list `watches_to_restart`, and ask whether to restart monitoring. Only on an explicit yes: `tw trip resume <id> --confirmed-by-user "<user's words>"`. The diff covers: price changes since parking, `reverify_now` items (re-verify them online before giving advice, safety and entry first), dossier status changes, new holidays in the window, score changes.
 - Trip finished → `tw trip done <id>`, then a short debrief: ask the `debrief_topics` it returns as 3-4 quick questions in one message. Save each clear answer with `tw profile set` quoting the user's words as evidence.
 
 ## 6. Ideas
 
-"One day I'd like to see Patagonia" → `tw idea add "Patagonia" --best-months 11,12,1,2` (best months from a source; omit if unknown). When the user wants to plan it: `tw idea promote <id> --trip <trip-id>`, then section 1. Ideas the user loses interest in → `tw idea drop <id>`.
+"One day I'd like to see Patagonia" → `tw idea add "Patagonia" --best-months 11,12,1,2` (best months from a source; omit if unknown). When the user wants to plan it: `tw idea promote <id> --trip <trip-id>`, then section 1 (monitoring for it is proposed and confirmed like any trip). Ideas the user loses interest in → `tw idea drop <id>`.
 
 ## 7. Buy or wait
 
