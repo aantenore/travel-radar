@@ -5,8 +5,11 @@ The model proposes candidates (domain, plus entity name and/or IATA code); this 
 Wikidata unreachable or unresolved -> the source stays unverified (see reliability.confirm_source).
 """
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 
-from . import sources
+from . import sources, urls
 
 # Second-level labels that form a public suffix together with a 2-letter ccTLD (co.uk, com.au, ...).
 _SLD = {"co", "com", "net", "org", "gov", "ac", "edu", "or", "ne", "go"}
@@ -27,8 +30,7 @@ def brand(domain):
 
 
 def _host(url):
-    m = re.match(r"^(?:[a-z]+://)?([^/:?#]+)", url.strip().lower())
-    return m.group(1) if m else ""
+    return urls.try_parse(url)[0]
 
 
 def match_domain(domain, official_sites):
@@ -39,8 +41,8 @@ def match_domain(domain, official_sites):
 
 
 def _split(url):
-    m = re.match(r"^(?:[a-z]+://)?([^/:?#]+)(?::\d+)?([^?#]*)", url.strip().lower())
-    return (m.group(1), (m.group(2) or "").rstrip("/")) if m else ("", "")
+    """Lenient wrapper for registry data: unparseable official sites are ignored."""
+    return urls.try_parse(url)
 
 
 def match_site(url, official_sites):
@@ -69,6 +71,42 @@ def match_site(url, official_sites):
         if best is None or rank < best[0]:
             best = (rank, cand)
     return best[1] if best else None
+
+
+_REDIRECTS = {}
+
+
+class _NoFollow(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def redirect_chain(cfg, site):
+    """Same-host URLs a registered official site redirects to (bounded hops, HEAD, no body).
+    Official sites move (e.g. /flights -> /travel/flights); hops to another host are ignored."""
+    if site in _REDIRECTS:
+        return _REDIRECTS[site]
+    out, cur = [], site
+    host0 = urls.try_parse(site)[0]
+    opener = urllib.request.build_opener(_NoFollow)
+    for _ in range(cfg["wikidata"]["redirect_max_hops"]):
+        req = urllib.request.Request(cur, method="HEAD", headers={"User-Agent": cfg["http"]["user_agent"]})
+        try:
+            opener.open(req, timeout=cfg["http"]["timeout_s"])
+            break
+        except urllib.error.HTTPError as e:
+            loc = e.headers.get("Location") if 300 <= e.code < 400 else None
+            if not loc:
+                break
+            nxt = urllib.parse.urljoin(cur, loc)
+            if urls.try_parse(nxt)[0] != host0:
+                break
+            out.append(nxt)
+            cur = nxt
+        except Exception:
+            break
+    _REDIRECTS[site] = out
+    return out
 
 
 def _sparql(cfg, query):
@@ -106,17 +144,18 @@ def describe(cfg, qids):
     air = " ".join(f"wd:{q}" for q in w["airline_classes"])
     trav = " ".join(f"wd:{q}" for q in w["travel_classes"])
     gov = " ".join(f"wd:{q}" for q in w["government_classes"])
-    q = (f"SELECT ?item ?itemLabel ?site ?iata ?air ?trav ?gov WHERE {{ VALUES ?item {{ {vals} }} "
+    q = (f"SELECT ?item ?itemLabel ?itemDescription ?site ?iata ?air ?trav ?gov WHERE {{ VALUES ?item {{ {vals} }} "
          f"OPTIONAL {{ ?item wdt:P856 ?site }} OPTIONAL {{ ?item wdt:P229 ?iata }} "
-         f"BIND(EXISTS {{ ?item wdt:P31/wdt:P279* ?a . VALUES ?a {{ {air} }} }} AS ?air) "
-         f"BIND(EXISTS {{ ?item wdt:P31/wdt:P279* ?t . VALUES ?t {{ {trav} }} }} AS ?trav) "
-         f"BIND(EXISTS {{ ?item wdt:P31/wdt:P279* ?g . VALUES ?g {{ {gov} }} }} AS ?gov) "
+         f"BIND(EXISTS {{ ?item (wdt:P31|wdt:P279)/wdt:P279* ?a . VALUES ?a {{ {air} }} }} AS ?air) "
+         f"BIND(EXISTS {{ ?item (wdt:P31|wdt:P279)/wdt:P279* ?t . VALUES ?t {{ {trav} }} }} AS ?trav) "
+         f"BIND(EXISTS {{ ?item (wdt:P31|wdt:P279)/wdt:P279* ?g . VALUES ?g {{ {gov} }} }} AS ?gov) "
          f'SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }} }}')
     out = {}
     for b in _sparql(cfg, q):
         qid = b["item"]["value"].rsplit("/", 1)[-1]
         e = out.setdefault(qid, {"label": b.get("itemLabel", {}).get("value"), "sites": set(), "iata": set(),
-                                 "airline": False, "travel": False, "gov": False})
+                                 "airline": False, "travel": False, "gov": False,
+                                 "description": b.get("itemDescription", {}).get("value", "")})
         if "site" in b:
             e["sites"].add(b["site"]["value"])
         if "iata" in b:
@@ -127,19 +166,26 @@ def describe(cfg, qids):
     return out
 
 
-def classify(url, entities):
-    """Pure decision: best (tier, qid, label, match, scope) for `url` among described entities.
-    Tier 1 beats tier 2; an exact domain match beats a brand (country variant) match.
-    The class check (airline / travel site) is always required."""
-    best, best_rank = (0, None, None, None, None), None
+def classify(url, entities, description_terms=()):
+    """Pure decision: best (tier, qid, label, match, scope, signal) for `url` among described entities.
+    Tier 1 beats tier 2; an exact domain match beats a brand match; class beats description.
+    A class (airline / travel service, P31 or P279 chain) is the primary signal. Only when the
+    official website already matches the page, the entity description may stand in for the
+    class (signal 'description'), for services the registry does not classify."""
+    best, best_rank = (0, None, None, None, None, None), None
+    terms = [t.lower() for t in description_terms]
     for qid, e in entities.items():
         ms = match_site(url, e["sites"])
-        t = 1 if e["airline"] else (2 if e["travel"] else 0)
-        if not ms or not t:
+        if not ms:
             continue
-        rank = (t, 0 if ms[0] == "exact" else 1)
+        t, signal = (1, "class") if e["airline"] else ((2, "class") if e["travel"] else (0, None))
+        if not t and ms[0] == "exact" and any(term in (e.get("description") or "").lower() for term in terms):
+            t, signal = 2, "description"
+        if not t:
+            continue
+        rank = (t, 0 if signal == "class" else 1, 0 if ms[0] == "exact" else 1, 0 if ms[1] else 1)
         if best_rank is None or rank < best_rank:
-            best, best_rank = (t, qid, e["label"], ms[0], ms[1]), rank
+            best, best_rank = (t, qid, e["label"], ms[0], ms[1], signal), rank
     return best
 
 
@@ -159,7 +205,7 @@ def official(url, entities):
 
 def verify(cfg, url, name=None, iata=None):
     """Raises sources.SourceError if Wikidata cannot be reached. `url` may carry a path."""
-    domain = _split(url)[0]
+    domain = urls.parse(url)[0]
     qids = by_site(cfg, domain)
     if iata:
         qids += by_iata(cfg, iata)
@@ -167,9 +213,15 @@ def verify(cfg, url, name=None, iata=None):
         qids += search(cfg, n)
     qids = list(dict.fromkeys(qids))
     ents = describe(cfg, qids)
-    tier, qid, label, match, scope = classify(url, ents)
+    page_reg = registrable(domain)
+    for e in ents.values():
+        for site in list(e["sites"]):
+            sh, sp = _split(site)
+            if sp and sh and registrable(sh) == page_reg:
+                e["sites"].update(redirect_chain(cfg, site))
+    tier, qid, label, match, scope, signal = classify(url, ents, cfg["wikidata"].get("travel_description_terms", ()))
     off = official(url, ents)
-    return {"domain": registrable(domain), "scope": scope if tier else (off or {}).get("scope"),
+    return {"domain": registrable(domain), "scope": scope if tier else (off or {}).get("scope"), "signal": signal,
             "tier": tier, "qid": qid or (off or {}).get("entity"),
             "label": label or (off or {}).get("label"), "match": match or (off or {}).get("match"),
             "official_site": bool(off), "government": bool(off and off["government"] and off["match"] == "exact"),

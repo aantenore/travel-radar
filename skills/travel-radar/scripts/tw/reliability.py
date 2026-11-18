@@ -7,24 +7,15 @@ cached with provenance and TTL in the data home. There are no domain lists anywh
 """
 import re
 from datetime import date
-from urllib.parse import urlparse
 
 from . import schema
-
-
-def _key(url):
-    u = urlparse(url if "://" in url else "https://" + url)
-    host = (u.hostname or "").lower()
-    if host.startswith("www."):
-        host = host[4:]
-    return host + (u.path or "/").lower()
 
 
 def verify_source(cfg, con, url, name=None, iata=None, now=None):
     """Registry check (Wikidata). Unreachable or unresolved -> stored as unverified (tier 0,
     short TTL): its prices are context only until verified by the registry or `confirm_source`."""
     from . import knowledge, sources, wikidata
-    domain = wikidata.registrable(host(url))
+    domain, _ = _parts(url)
     r = cfg["reliability"]
     try:
         v = wikidata.verify(cfg, url, name, iata)
@@ -38,7 +29,7 @@ def verify_source(cfg, con, url, name=None, iata=None, now=None):
     except sources.SourceError as e:
         v = {"domain": domain, "tier": 0, "note": f"registry unreachable: {e}"}
         prov, verified_by, ttl = [cfg["wikidata"]["api"]], "unverified", r["unverified_ttl_days"]
-    value = {k: v.get(k) for k in ("tier", "qid", "label", "match", "note")}
+    value = {k: v.get(k) for k in ("tier", "qid", "label", "match", "note", "signal")}
     value["official_site"] = bool(v.get("official_site"))
     value["government"] = bool(v.get("government"))
     key = scope_key(domain, v.get("scope"))
@@ -57,8 +48,7 @@ def confirm_source(cfg, con, url, tier, evidence, now=None, government=False, sc
     as the official airline (tier 1), travel search/booking site (tier 2) or, with
     `government`, the official site of a government body (tier 0)."""
     from . import knowledge, wikidata
-    domain = wikidata.registrable(host(url))
-    path = wikidata._split(url)[1]
+    domain, path = _parts(url)
     r = cfg["reliability"]
     errors = []
     if scope not in ("domain", "path"):
@@ -96,8 +86,7 @@ def resolve(cfg, con, url, now=None):
     """Cached runtime verdict for the URL: the most specific fresh path-scoped verdict whose
     path prefixes the URL path, else the domain verdict. None if missing/expired."""
     from . import knowledge, wikidata
-    h, path = wikidata._split(url)
-    domain = wikidata.registrable(h)
+    domain, path = _parts(url)
     k = None
     for cand in knowledge.with_prefix(con, "source", domain + "/", now):
         sp = cand["key"][len(domain):]
@@ -120,7 +109,22 @@ def independent(cfg, a, b):
 
 
 def host(url):
-    return _key(url).split("/", 1)[0]
+    """Host (without "www.") from the single canonical parser; invalid URLs are rejected."""
+    from . import urls
+    try:
+        h = urls.parse(url)[0]
+    except urls.URLError as e:
+        raise schema.ValidationError([str(e)])
+    return h[4:] if h.startswith("www.") else h
+
+
+def _parts(url):
+    from . import urls, wikidata
+    try:
+        h, path = urls.parse(url)
+    except urls.URLError as e:
+        raise schema.ValidationError([str(e)])
+    return wikidata.registrable(h), path
 
 
 def _d(v, name):

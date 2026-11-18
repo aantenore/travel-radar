@@ -50,9 +50,17 @@ def gaps(cfg, prof, trip=None, step="plan"):
         raise schema.ValidationError([f"unknown step {step!r}; valid: {sorted(cfg['intake']['steps'])}"])
     deferred = {d.get("key") for d in prof.get("deferred") or []}
     facts = ((trip or {}).get("facts") or {})
+    shadowed = set()
+    for trip_key, prof_key in (cfg["intake"].get("equivalent") or {}).items():
+        if trip is not None:
+            shadowed.add(prof_key)                       # the trip-level question covers it
+            if trip_key in deferred or prof_key in deferred:
+                deferred |= {trip_key, prof_key}
+            if not _empty(_get(prof, prof_key)):
+                shadowed.add(trip_key)                   # a general answer already exists
     out = []
     for key, w in weights.items():
-        if key in deferred:
+        if key in deferred or key in shadowed:
             continue
         if key.startswith("trip."):
             if trip is None or not _empty((facts.get(key[5:]) or {}).get("value")):

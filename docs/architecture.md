@@ -156,6 +156,12 @@ Date: 2026-11-18 · Status: accepted
 - **Who uses the browser (0.8.1)**: the main model, not fare-reader. Browser tools are an MCP server whose tool names differ between desktop and linked cloud sessions, the pane is a single shared surface (parallel subagents would collide), and keeping fare-reader to WebSearch/WebFetch preserves its least privilege. Browser reads are recorded with `--extractor main`, which also makes them independent confirmations of fare-reader reads. Cost: browser reads run on the main model.
 - **Live check (0.8.0, user's data home)**: with cookies declined, Google Flights showed exact-date fares (FCO–PEK 2027-06-04/06-22 from 760 €). Availability of browser tools in unattended scheduled runs is still unverified.
 - **Path-scoped verdicts (0.8.1)**: official websites registered with a path (a flight search inside a larger site) match only URLs under that path; cached verdicts are keyed by domain + path, so the rest of the domain never inherits them. Google Flights is not classified as a travel site on the registry and its registered path differs from the live one, so it needs `tw sources confirm --scope path`.
+- **Registry gaps (0.8.2)**: the registry has no class for "flight search / online booking service", so:
+  - the class is checked through the P31 and P279 chain;
+  - the entity description counts as a secondary signal (`signal: description`, terms in config), only when the entity's official website already matches the page exactly, host and path;
+  - moved official websites are followed through same-host redirects (bounded, HEAD only).
+- **Live check (2026-11-18)**: from an EU network Google's registered `/flights/` answers with a redirect to the consent page, not to `/travel/flights`, so the move cannot be observed and Google Flights stays unverified. It needs `tw sources confirm --scope path`. Matching was deliberately not loosened (for example by path suffix) to make it pass.
+- **One URL parser (0.8.2)**: every source decision uses the same parser. It rejects user info, invalid ports, encoded slashes and `..` segments, and normalizes paths, so a crafted URL cannot read or write another site's verdict.
 - **Consequences**: the system shifts by itself from methods that stop working; the cost of the browser path is paid only where it is needed.
 
 ### ADR-8. Official status, requirements and geopolitics as code-checked runtime research

@@ -12,6 +12,7 @@ os.environ.setdefault("TRAVEL_RADAR_HOME", tempfile.mkdtemp(prefix="travel-radar
 from tw import access, advise, config, knowledge, reliability, schema, sources, store, wikidata  # noqa: E402
 
 CFG = config.settings()
+wikidata.redirect_chain = lambda cfg, site: []   # unit tests never touch the network
 NOW = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
 
 
@@ -200,6 +201,49 @@ class PathScopeTest(unittest.TestCase):
         self.assertEqual(reliability.resolve(CFG, self.con, "https://www.google.com/search", NOW)["tier"], 0)
         with self.assertRaises(schema.ValidationError):
             reliability.confirm_source(CFG, self.con, "https://www.google.com", 2, ev, now=NOW, scope="path")
+
+
+class RegistryGapsTest(unittest.TestCase):
+    """Entities the registry does not classify, whose registered website moved."""
+    GF = {"Q5583836": {"label": "Google Flights", "sites": {"https://www.google.com/flights/"}, "airline": False,
+                       "travel": False, "gov": False, "description": "online flight booking service from Google"},
+          "Q9366": {"label": "Google Search", "sites": {"https://www.google.com/"}, "airline": False,
+                    "travel": False, "gov": False, "description": "search engine developed by Google"}}
+
+    def run_verify(self, url, chain):
+        ents = {k: dict(v, sites=set(v["sites"])) for k, v in self.GF.items()}
+        with mock.patch.object(wikidata, "by_site", lambda cfg, d: ["Q9366"]), \
+             mock.patch.object(wikidata, "search", lambda cfg, n: ["Q5583836"]), \
+             mock.patch.object(wikidata, "describe", lambda cfg, q: ents), \
+             mock.patch.object(wikidata, "redirect_chain", lambda cfg, site: chain.get(site, [])):
+            return wikidata.verify(CFG, url, "Google Flights")
+
+    def test_moved_site_plus_description_passes_only_under_its_path(self):
+        chain = {"https://www.google.com/flights/": ["https://www.google.com/travel/flights"]}
+        v = self.run_verify("https://www.google.com/travel/flights?q=x", chain)
+        self.assertEqual((v["tier"], v["scope"], v["signal"], v["qid"]), (2, "/travel/flights", "description", "Q5583836"))
+        v = self.run_verify("https://www.google.com/search?q=flights", chain)
+        self.assertEqual(v["tier"], 0)
+
+    def test_without_redirect_evidence_it_stays_unverified(self):
+        self.assertEqual(self.run_verify("https://www.google.com/travel/flights?q=x", {})["tier"], 0)
+
+    def test_description_alone_never_matches_another_site(self):
+        ents = {"Q1": {"label": "X", "sites": {"https://www.other.example/"}, "airline": False, "travel": False,
+                       "gov": False, "description": "online flight booking service"}}
+        self.assertEqual(wikidata.classify("https://www.google.com/travel/flights", ents, ["flight booking"])[0], 0)
+
+
+class URLParserTest(unittest.TestCase):
+    def test_rejects_confusing_urls(self):
+        from tw import urls
+        for bad in ("https://kayak.it@evil.com/f", "https://evil.com:abc/", "https://g.com/a/%2e%2e/b",
+                    "https://g.com/travel/flights/../search", "https://g.com/a%2Fb"):
+            with self.subTest(url=bad), self.assertRaises(urls.URLError):
+                urls.parse(bad)
+            with self.subTest(url=bad), self.assertRaises(schema.ValidationError):
+                reliability.resolve(CFG, store.connect(":memory:"), bad)
+        self.assertEqual(urls.parse("HTTPS://WWW.Google.com/Travel/Flights/?q=1"), ("www.google.com", "/travel/flights"))
 
 
 class KnowledgeTest(unittest.TestCase):

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.2 - 2026-11-18
+
+- Security: one canonical URL parser (`tw/urls.py`) for verify, confirm, resolve and record. Rejects user info, invalid ports, encoded slashes and traversal segments; normalizes paths. Fixes a parser mismatch where a crafted URL could be checked under one host and cached or looked up under another.
+- Source verification:
+  - entity found by name is matched against the page by host and path;
+  - registered official websites that moved are followed through same-host redirects (bounded, HEAD);
+  - class check through the P31/P279 chain;
+  - entity description as a secondary signal, only with an exact official-website match (`signal: description`; terms in config).
+- Known gap: from EU networks Google's registered `/flights/` redirects to a consent page, so Google Flights still needs `tw sources confirm --scope path`.
+- `tw profile gaps`: equivalent trip/profile keys (config `intake.equivalent`) are asked once; with a trip the trip-level question wins, and a general answer already in the profile removes it.
+
 ## 0.8.1 - 2026-11-18
 
 - Path-aware source verification: an official website registered with a path matches only URLs under that path (host + path prefix); the instance-of class check is still required. Verdicts are cached per domain + path, so e.g. a flight search section never makes the whole domain a travel site, and `google.com/search` stays unverified.

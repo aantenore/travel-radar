@@ -173,6 +173,17 @@ class IntakeTest(Base):
         self.assertNotIn("trip.trip_budget_eur", keys)
         self.assertNotIn("trip.dates_flexibility_days", keys)
 
+    def test_equivalent_trip_and_profile_keys_are_asked_once(self):
+        g = profile.gaps(self.cfg, {}, trips.load(self.cfg, "t1"), "plan")
+        keys = [x["key"] for x in g["ask_now"]]
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertIn("trip.trip_budget_eur", keys)
+        self.assertNotIn("constraints.budget_total_eur", [x["key"] for x in g["all_missing"]])
+        g = profile.gaps(self.cfg, {"constraints": {"budget_total_eur": 3000}}, trips.load(self.cfg, "t1"), "plan")
+        self.assertNotIn("trip.trip_budget_eur", [x["key"] for x in g["all_missing"]])
+        g = profile.gaps(self.cfg, {}, None, "plan")          # no trip: the profile question remains
+        self.assertIn("constraints.budget_total_eur", [x["key"] for x in g["all_missing"]])
+
     def test_trip_specific_vs_profile_routing(self):
         with self.assertRaises(schema.ValidationError) as cm:
             profile.set_value({}, "dates_flexibility_days", 3, "x")

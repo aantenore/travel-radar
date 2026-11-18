@@ -1,7 +1,7 @@
 {
   "name": "travel-radar",
   "displayName": "Travel Radar",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Plan trips from a free-form request and keep them under watch: learns your travel profile, researches flights, deals, weather and safety online, scores options against your preferences, and monitors prices and risks on a schedule.",
   "author": {
     "name": "Antonio Antenore",

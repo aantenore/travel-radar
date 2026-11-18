@@ -59,6 +59,11 @@ wikidata:
   search_limit: 3
   airline_classes: [Q46970]                          # airline
   travel_classes: [Q118710708, Q114106, Q1276157]    # classes: online travel agency, metasearch engine, travel website
+  # Classes checked through the P31/P279 chain. The registry has no class for "flight search /
+  # online booking service" (checked 2026-11-18), so the description below is a secondary rule:
+  # it counts only when the entity's official website already matches the page exactly.
+  travel_description_terms: [flight booking, flight search, airfare, air fare, travel booking, travel search, online travel agency, metasearch]
+  redirect_max_hops: 3       # follow moved official websites (same host only)
   # classes: government agency, public authority, diplomatic mission, embassy, ministry of foreign affairs, ministry, intergovernmental org
   government_classes: [Q327333, Q4383245, Q213283, Q3917681, Q20901295, Q192350, Q245065]
 
@@ -125,6 +130,9 @@ experiences:
 # "trip.<key>" = a fact of the current trip (tw trip fact), everything else = a profile field.
 intake:
   max_questions: 3
+  # The same question asked at trip level and at profile level: with a trip, the trip key wins.
+  equivalent:
+    trip.trip_budget_eur: constraints.budget_total_eur
   trip_facts: [trip_budget_eur, dates_flexibility_days, party_size, length_days, must_include, must_avoid]
   steps:
     plan: {constraints.origin_airports: 10, trip.trip_budget_eur: 9, constraints.budget_total_eur: 8,
