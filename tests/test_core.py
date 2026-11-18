@@ -63,15 +63,18 @@ class WatchTest(unittest.TestCase):
         now = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
         x, y = "https://www.kayak.it/flights/FCO-PEK", "https://www.skyscanner.it/x"
 
-        def obs(p, url, h):
-            store.add_observation(self.con, "w1", p, "s", url, ts=(now + timedelta(hours=h)).isoformat(), tier=2)
+        def obs(p, url, h, extractor="fare-reader"):
+            store.add_observation(self.con, "w1", p, "s", url, ts=(now + timedelta(hours=h)).isoformat(),
+                                  tier=2, extractor=extractor)
 
         for i, p in enumerate([700, 690, 710, 600]):
             obs(p, x, i - 4)
         res = watches.evaluate(CFG, self.con, self.w, now)
         self.assertEqual({a["kind"] for a in res}, {"new_low", "drop"})
         self.assertEqual({a["status"] for a in res}, {"pending_confirmation"})
-        obs(600, x, 0)  # same fare re-read on the same site
+        obs(600, x, 0)  # the same extractor re-reading the same site does not confirm
+        self.assertEqual({a["status"] for a in watches.evaluate(CFG, self.con, self.w, now)}, {"pending_confirmation"})
+        obs(600, x, 0, extractor="main")  # re-read by the main model confirms
         res = watches.evaluate(CFG, self.con, self.w, now)
         self.assertEqual({a["kind"] for a in res}, {"new_low", "drop"})
         self.assertEqual({a["status"] for a in res}, {"confirmed"})

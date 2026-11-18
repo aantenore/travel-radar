@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 - 2026-11-18
+
+Design review of 0.3.0 (agentic-architect, Standard depth).
+- `fare-reader` agent shipped with the plugin: `model: sonnet`, tools WebSearch/WebFetch only, strict JSON with a verbatim excerpt.
+- `tw watch record` requires `--excerpt` and `--extractor`; the price (or `--excerpt-price` for other currencies) must appear in the excerpt. Excerpt and extractor are stored.
+- Independent confirmation: an alert is confirmed only by another tier 1/2 site or by a re-read from the main model, never by the same extractor again.
+- Buy/wait follow-up without reminder tasks: `tw advise` stores `recheck_date`; `tw watch due` marks the watch due with reason `advise_recheck`. The 0.3.0 reminder tasks are removed.
+- Booking windows marked as heuristics with a source; `advise.min_history` (renamed from `advisor.min_verified_obs`; the `advisor` config section is now `advise`).
+- `research.max_subagent_calls_per_run` enforced by `tw watch due` (closest departures first, others deferred).
+- Shadow rollout: for 14 days from first use, verdicts are logged (`tw verdicts`) and not notified.
+- Evals: labelled fare excerpts, advise backtests, `evals/score_extraction.py` for model changes.
+
 ## 0.3.0 - 2026-11-18
 
 - Verified prices: source tiers in config (tier 1 airline sites, tier 2 meta-search with exact dates); `tw watch record` rejects other sources and observations without exact dates inside the watch window; tier stored on each observation (`tw source-tier <url>` to check a URL). Existing databases are migrated automatically.

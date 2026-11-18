@@ -75,12 +75,14 @@ You can also start with an explicit command: `/travel-radar:trip 2-3 weeks in Ch
   - A flight price is recorded only from an airline's own site (tier 1) or a meta-search page queried with exact dates (tier 2: Google Flights, Skyscanner, Kayak, Momondo).
   - Blogs, "flights from 380€" route pages and historical averages are context, never prices.
   - The list lives in config; add your own sites with `tier1_extra` / `tier2_extra`.
-- **No alert from a single reading.** A price alert fires only when a second observation confirms it: the same fare re-read on the same site, or the same price (±5%) on another reliable site, within 24 hours. Until then it stays `pending_confirmation` and is re-checked.
+- **The price must be on the page.** Every recorded price carries a verbatim excerpt of the page, and the number must appear in it. Who read it (the `fare-reader` agent or the main model) is stored for later evaluation.
+- **No alert from a single reading.** A price alert fires only when an independent second observation confirms it within 24 hours: the same price (±5%) on another reliable site, or the same fare re-read by the main model. The page reader re-reading its own result does not count. Until then the alert stays `pending_confirmation` and is re-checked.
 - **Buy or wait.** `/travel-radar:advise` gives `BUY_NOW`, `WAIT` or `WATCH_CLOSELY`, with a confidence and the reasons.
   - The verdict is computed by code from: days to departure versus the usual booking window (long or short haul, peak or not), where today's price sits in its own verified history, the 7-day trend, volatility and your budget.
   - With little history it says so instead of pretending.
   - It may add context found online (airline sales, surcharges, route changes, geopolitics). When it disagrees with the verdict it says so and shows the sources.
-- **"I'll message you."** When the answer is "wait", it schedules one reminder for the recheck date. That day it refreshes prices and tells you the new verdict. There is never more than one reminder per watch.
+- **"I'll message you."** When the answer is "wait", it remembers the recheck date. On that day the regular monitoring round refreshes prices and tells you the new verdict. No extra scheduled tasks are created.
+- **Shadow start.** For the first 14 days, buy/wait verdicts are logged and shown when you ask (`/travel-radar:advise`) instead of being pushed. Confirmed price alerts and safety or entry changes are always notified.
 - **How to buy.** It suggests:
   - booking direct with the airline when the price is the same or close;
   - a changeable fare while entry rules are uncertain;
@@ -174,7 +176,8 @@ scoring:
 - **Implausible prices are flagged, not celebrated.** A price far below history raises a `suspect` alert that is re-verified on the source, and is never notified as a deal.
 - **Cost-aware monitoring.**
   - A round with nothing due stops before any web access.
-  - Page reading runs in a subagent on a cheaper model.
+  - Page reading runs in the plugin's `fare-reader` agent: read-only (web search and fetch only), on a cheaper model, capped per round.
+  - The cheaper model is eval-gated (`evals/`). Agent model aliases are not version-pinned, so re-run the eval when they change.
   - Verifying alerts and the buy/wait message stay on the main model.
 - **Polite browsing.** Each watch reads only a few pages per round (configurable), with no bulk scraping. Sites that block automation or need login are skipped and recorded as `no_data`.
 - **Limits:**
@@ -200,9 +203,11 @@ Repository layout:
 
 ```text
 .claude-plugin/         plugin.json, marketplace.json
+agents/                 fare-reader (read-only price extraction)
 commands/               slash commands
 skills/travel-radar/    SKILL.md, config/, scripts/tw.py + tw/ package
-tests/                  unit tests
+tests/                  unit tests, fixtures, backtests
+evals/                  extraction eval for model changes
 docs/architecture.md
 ```
 

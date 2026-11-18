@@ -1,0 +1,42 @@
+# Saved fare-page excerpts with hand-labelled values.
+# Used by unit tests (excerpt gate) and by evals/score_extraction.py (extractor accuracy).
+- id: gf-1
+  url: https://www.google.com/travel/flights/search?tfs=x
+  excerpt: "Air China · 1 stop · 14 hr 35 min · FCO–PEK · Thu, Jun 3 – Sun, Jun 20 · €612 round trip"
+  expected: {price: 612, currency: EUR, depart: 2027-06-03, return: 2027-06-20, carrier: Air China, stops: 1}
+- id: gf-2
+  url: https://www.google.it/travel/flights/search?tfs=y
+  excerpt: "China Eastern Airlines · 1 scalo · MXP–PVG · gio 10 giu – ven 25 giu · 1.084 € andata e ritorno"
+  expected: {price: 1084, currency: EUR, depart: 2027-06-10, return: 2027-06-25, carrier: China Eastern Airlines, stops: 1}
+- id: sky-1
+  url: https://www.skyscanner.it/trasporti/voli/fco/pek/270603/270620/
+  excerpt: "Emirates, 1 scalo (DXB). Andata 3 giu 2027, ritorno 20 giu 2027. Prezzo migliore 734 €"
+  expected: {price: 734, currency: EUR, depart: 2027-06-03, return: 2027-06-20, carrier: Emirates, stops: 1}
+- id: sky-2
+  url: https://www.skyscanner.net/transport/flights/lon/bjsa/270605/270619/
+  excerpt: "Finnair · 1 stop via HEL · 5 Jun 2027 – 19 Jun 2027 · £589 total"
+  expected: {price: 589, currency: GBP, depart: 2027-06-05, return: 2027-06-19, carrier: Finnair, stops: 1}
+- id: kayak-1
+  url: https://www.kayak.it/flights/ROM-BJS/2027-06-03/2027-06-20
+  excerpt: "Turkish Airlines 1 scalo IST · 3/6 – 20/6 · 698 € a persona"
+  expected: {price: 698, currency: EUR, depart: 2027-06-03, return: 2027-06-20, carrier: Turkish Airlines, stops: 1}
+- id: kayak-2
+  url: https://www.kayak.com/flights/NYC-PEK/2027-06-01/2027-06-16
+  excerpt: "Cathay Pacific · 1 stop (HKG) · Jun 1 – Jun 16, 2027 · $1,249.40"
+  expected: {price: 1249.40, currency: USD, depart: 2027-06-01, return: 2027-06-16, carrier: Cathay Pacific, stops: 1}
+- id: momondo-1
+  url: https://www.momondo.it/flight-search/MXP-CTU/2027-06-08/2027-06-27
+  excerpt: "Qatar Airways · 1 scalo DOH · 8 giu – 27 giu · 821 €"
+  expected: {price: 821, currency: EUR, depart: 2027-06-08, return: 2027-06-27, carrier: Qatar Airways, stops: 1}
+- id: airline-1
+  url: https://www.ita-airways.com/it_it/booking/flights
+  excerpt: "Roma Fiumicino - Pechino Capital, voli diretti, 04/06/2027 - 21/06/2027, Economy Classic totale 1 012,50 EUR"
+  expected: {price: 1012.50, currency: EUR, depart: 2027-06-04, return: 2027-06-21, carrier: ITA Airways, stops: 0}
+- id: airline-2
+  url: https://www.airchina.it/it/booking
+  excerpt: "CA940 FCO-PEK 2027-06-03 / CA939 PEK-FCO 2027-06-20 · Economy Light · Totale EUR 655,00"
+  expected: {price: 655.00, currency: EUR, depart: 2027-06-03, return: 2027-06-20, carrier: Air China, stops: 0}
+- id: airline-3
+  url: https://www.ceair.com/en/booking
+  excerpt: "MU788 FCO-PVG 9 Jun 2027 | MU787 PVG-FCO 26 Jun 2027 | Total CNY 4,980"
+  expected: {price: 4980, currency: CNY, depart: 2027-06-09, return: 2027-06-26, carrier: China Eastern Airlines, stops: 0}

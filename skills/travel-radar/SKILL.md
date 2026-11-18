@@ -24,7 +24,7 @@ User data lives in the data home (`$TRAVEL_RADAR_HOME`, default `~/.travel-radar
 | Watches | `tw watch list | due | record | checked | evaluate | report` |
 | Trip lifecycle | `tw trip list | set <id> --to <status> [--option a] | park <id> --reason "..." [--until DATE] | resume <id> | done <id>` |
 | Idea inbox | `tw idea add "<place or wish>" [--best-months 4,5] | list | checked <id> | promote <id> --trip <trip-id> | drop <id>` |
-| Buy or wait | `tw advise --watch <id>` |
+| Buy or wait | `tw advise --watch <id>` / history: `tw verdicts --watch <id>` |
 | Is this URL a valid price source? | `tw source-tier <url>` (1 airline, 2 meta-search, 0 context only) |
 | Export | `tw export ics <trip>` / `tw export brief <trip>` (written next to the trip unless `--out`) |
 
@@ -121,19 +121,20 @@ Before creating it, check with `list_scheduled_tasks` that it does not exist yet
 
 ## 4. Monitoring round
 
-Unattended run: no user to learn from. Forbidden: `tw profile set`, `tw trip` state changes, `tw idea add/promote/drop`, creating or editing trips and watches (except setting `active: false` on watches whose departure has passed), creating tasks other than the advise reminder of section 7. Allowed only: `tw`, web search and reading, editing the dossier items `safety`, `entry` and `deals`.
+Unattended run: no user to learn from. Forbidden: `tw profile set`, `tw trip` state changes, `tw idea add/promote/drop`, creating or editing trips and watches (except setting `active: false` on watches whose departure has passed), creating any task. Allowed only: `tw`, web search and reading, editing the dossier items `safety`, `entry` and `deals`.
 
 Keep it cheap:
 1. `tw watch due`. If `nothing_due` is true → stop immediately, no message, no web access.
-2. Watches in `invalid` → mention them in the notification, do not fix them.
-3. For each flight/deal watch with `due: true`, delegate the page reading to **one subagent per watch on a cheaper model** (Agent tool, `model: sonnet`). Give it: the watch YAML, the rules of section 8, the page budget `research.max_fetches_per_watch`, and ask it to return only JSON `[{price_eur, currency, source, url, depart, return, carrier, stops}]` or `{no_data: "<reason>"}`. It must not record anything. Then, on the main model, run `tw watch record ...` for each result (the CLI rejects non-tier sources and missing dates; drop those) and `tw watch checked --watch <id> --status ok|no_data|error --note "<reason>"`.
-4. safety watches: update the dossier items `safety` and `entry` (visas, entry rules); status change → alert. weather watches: `tw forecast`, summarize anomalies against the plan. Always `tw watch checked`.
-5. `tw watch evaluate`, handled on the main model:
-   - `pending_confirmation` → re-read the same fare on the same site, or find it on another tier 1/2 site (counts against the page budget), record it, evaluate again. Still unconfirmed → do not notify; it will be re-checked next round.
-   - `needs_reverify` (suspect) → reopen the source; if real, record again, otherwise `tw watch checked --note` with the error. Never notify a suspect as a deal.
-   - `confirmed` → run `tw advise --watch <id>` and include the verdict in the notification.
-6. `reminders` (parked trips whose date arrived) → "time to look again". `ideas` (low frequency): for ideas with `season.approaching`, look for a deal from the profile airports (max 2 pages), then `tw idea checked <id> --note "<what you found, with link>"`.
-7. Confirmed alerts, safety changes, reminders or idea flags → one short notification (PushNotification if available) with price, link, reason and verdict. Otherwise finish silently.
+2. Watches in `invalid` → mention them in the notification, do not fix them. Watches with `deferred` wait for the next run.
+3. For each watch with `fare_reader: true`, call the plugin's **fare-reader** subagent (read-only, cheaper model) with the watch YAML and the page budget `research.max_fetches_per_watch`. Never call it more than once per watch per run. For each fare it returns, on the main model: `tw watch record --watch <id> --price-eur <EUR> --source <domain> --url <url> --depart <d> --return <d> --carrier <c> --stops <n> --excerpt "<excerpt>" --extractor fare-reader` (add `--excerpt-price <page price>` and the rate's source in `--note` when the page currency is not EUR). The CLI rejects untiered sources, missing or out-of-window dates and prices absent from the excerpt; drop those. Then `tw watch checked --watch <id> --status ok|no_data|error --note "<reason>"`.
+4. safety watches: update the dossier items `safety` and `entry`; status change → alert. weather watches: `tw forecast`, summarize anomalies. Always `tw watch checked`.
+5. `tw watch evaluate`, on the main model:
+   - `pending_confirmation` → confirm independently: either open the same fare yourself and record it with `--extractor main`, or find it on another tier 1/2 site. Never ask fare-reader to re-read it. Then evaluate again; still unconfirmed → no notification.
+   - `needs_reverify` (suspect) → open the source yourself; if real, record with `--extractor main`, otherwise note the error with `tw watch checked`. Never notify a suspect as a deal.
+   - `confirmed` → `tw advise --watch <id>`.
+6. Watches due with reason `advise_recheck` → after step 3, run `tw advise --watch <id>`. This is the "I'll message you" follow-up: there are no separate reminder tasks.
+7. `reminders` (parked trips whose date arrived) → "time to look again". `ideas`: for ideas with `season.approaching`, look for a deal from the profile airports (max 2 pages), then `tw idea checked <id> --note "<what you found, with link>"`.
+8. Notify (PushNotification if available) only for: confirmed price alerts, `safety`/`entry` changes, reminders, idea flags, and advise verdicts whose output has `notify: true`. During the shadow period (`shadow: true`) verdicts and idea flags are logged, not notified; show them when the user asks (`tw verdicts`). Otherwise finish silently.
 
 ## 5. Park, resume, done
 
@@ -150,7 +151,8 @@ Keep it cheap:
 `tw advise --watch <id>` returns `BUY_NOW | WAIT | WATCH_CLOSELY`, a confidence, a `recheck_date` and the reasons as data. The verdict is the code's.
 - Present it with its reasons and confidence. Low confidence or few verified observations → say so plainly.
 - You may add context found online now (airline sales, fuel surcharges, route or schedule changes, visa or geopolitical news), with sources. If that context points the other way, say explicitly "I disagree with the verdict because…" with the sources; never silently replace it.
-- **"I'll message you"**: when the verdict is WAIT or WATCH_CLOSELY and the output has `reminder`, create ONE one-time scheduled task with `taskId` = `reminder.task_id` and `fireAt` = `reminder.fire_on` at 09:00 local time. If a task with that id already exists (`list_scheduled_tasks`), update its `fireAt` instead of creating another. Its prompt: "Use the travel-radar skill: refresh prices for watch <id> (section 4 steps 3 and 5 for this watch only), run `tw advise --watch <id>`, and notify the user with the verdict, price, link and reasons." Tell the user the date. Scheduled tasks run while the desktop app is open; if it was closed, the task runs at the next launch.
+- **"I'll message you"**: `tw advise` stores the `recheck_date` of a WAIT or WATCH_CLOSELY verdict. On that date `tw watch due` marks the watch due (`advise_recheck`) and the monitoring round refreshes prices, re-runs advise and notifies the new verdict. Tell the user the date. No scheduled task is created for this: it needs only the monitoring task of section 3 (if the app was closed, it runs at the next launch).
+- The booking windows are heuristics (`window_confidence`). With history shorter than `advise.min_history` the confidence is low: say it plainly.
 - **How to buy** (when BUY_NOW or the user decides):
   - If the airline's own site is equal or within a few percent of the meta-search price, book direct with the airline: changes and refunds are easier.
   - While entry rules or dates are uncertain, prefer a changeable or refundable fare, and state the price difference.
@@ -161,7 +163,7 @@ Keep it cheap:
 ## 8. Price sources and scraping
 
 - A flight price observation must come from a tier 1 (airline official site) or tier 2 (meta-search page queried with exact dates) source, per `tw source-tier <url>`, and carry exact `--depart` and `--return` dates inside the watch window. Blog posts, "flights from X€" route pages, deal newsletters and historical averages are context only: use them to decide where to look, never record them.
-- Respect `research.max_fetches_per_watch`. No bulk scraping, no automated pagination through result lists.
+- Respect `research.max_fetches_per_watch` and `research.max_subagent_calls_per_run` (enforced by `tw watch due`). No bulk scraping, no automated pagination through result lists.
 - Sites that block automated access, show a captcha or require login → skip, record `no_data` with the reason, try another tier 1/2 source.
 - If a browser tool is available it may be used to read a page that needs JavaScript; never to log in or to submit forms beyond the search itself.
 

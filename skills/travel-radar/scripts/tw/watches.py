@@ -39,20 +39,36 @@ def per_day(cfg, w, today):
 
 
 def due(cfg, con, watches, now=None):
+    """Which watches to check now. A watch is due by cadence, or because a buy/wait recheck date
+    arrived (`advise_recheck`). Flight/deal watches needing page reading are capped per run by
+    research.max_subagent_calls_per_run (closest departures first); the rest are deferred."""
     now = now or datetime.now(timezone.utc)
+    today = now.date()
     out = []
     for w in watches:
         if not w.get("active", True):
             continue
-        n, days = per_day(cfg, w, now.date())
+        n, days = per_day(cfg, w, today)
         if days < 0:
-            out.append({"id": w["id"], "due": False, "reason": "departure in the past: deactivate"})
+            out.append({"id": w["id"], "due": False, "reasons": ["departure in the past: deactivate"]})
             continue
         last = store.last_check(con, w["id"])
-        interval = timedelta(hours=24 / n)
-        is_due = last is None or now - datetime.fromisoformat(last) >= interval
-        out.append({"id": w["id"], "due": is_due, "checks_per_day": n, "days_to_departure": days,
-                    "last_check": last, "spec": w})
+        reasons = []
+        if last is None or now - datetime.fromisoformat(last) >= timedelta(hours=24 / n):
+            reasons.append("cadence")
+        rc = store.recheck(con, w["id"])
+        if rc and date.fromisoformat(rc["recheck_date"]) <= today:
+            reasons.append("advise_recheck")
+        out.append({"id": w["id"], "due": bool(reasons), "reasons": reasons, "checks_per_day": n,
+                    "days_to_departure": days, "last_check": last, "spec": w})
+    budget = cfg["research"]["max_subagent_calls_per_run"]
+    readers = sorted((x for x in out if x["due"] and x["spec"].get("kind") in ("flight", "deal")),
+                     key=lambda x: x["days_to_departure"])
+    for i, x in enumerate(readers):
+        if i < budget:
+            x["fare_reader"] = True
+        else:
+            x["due"], x["deferred"] = False, "subagent budget for this run reached: next run"
     return out
 
 
@@ -62,20 +78,18 @@ def _cooldown_ok(cfg, con, wid, kind, now):
 
 
 def _partners(cfg, obs, last):
-    """Earlier observations that confirm `last`: same fare re-read on the same site, or another
-    tier 1/2 site, within the confirmation window and tolerance."""
+    """Earlier observations that independently confirm `last` within the window and tolerance:
+    another tier 1/2 site, or the same site re-read by an independent extractor (main model)."""
     r = cfg["reliability"]
     t_last = datetime.fromisoformat(last["ts"])
     window = timedelta(hours=r["confirm_window_h"])
     out = []
     for o in obs:
-        if abs(t_last - datetime.fromisoformat(o["ts"])) > window:
+        if abs(t_last - datetime.fromisoformat(o["ts"])) > window or not reliability.independent(cfg, o, last):
             continue
         diff = 100 * abs(o["price_eur"] - last["price_eur"]) / last["price_eur"]
         same = reliability.host(o["url"]) == reliability.host(last["url"])
-        if same and diff <= r["same_source_tolerance_pct"]:
-            out.append(o)
-        elif not same and o.get("tier") in (1, 2) and diff <= r["cross_source_tolerance_pct"]:
+        if diff <= r["same_source_tolerance_pct" if same else "cross_source_tolerance_pct"]:
             out.append(o)
     return out
 
@@ -120,7 +134,7 @@ def evaluate(cfg, con, w, now=None):
             continue
         if kind != "suspect" and not partners:
             new.append({**base, "status": "pending_confirmation",
-                        "next": "re-read the same fare on the same site, or find it on another tier 1/2 site, then record and evaluate again"})
+                        "next": "main model: re-read the same fare (record with --extractor main) or find it on another tier 1/2 site, then evaluate again"})
             continue
         store.add_alert(con, w["id"], kind, price, msg, ts=now.replace(microsecond=0).isoformat())
         status = "needs_reverify" if kind == "suspect" else "confirmed"

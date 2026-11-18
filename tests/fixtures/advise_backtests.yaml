@@ -1,0 +1,34 @@
+# Synthetic price histories (days before "now", EUR, all tier 2) with the expected verdict.
+# now = 2026-11-18. Watch defaults: long haul, peak, depart 2027-06-01 (195 days, window 120-240).
+- name: good price in window
+  watch: {}
+  history: [[10, 950], [9, 940], [8, 960], [7, 930], [6, 955], [5, 945], [4, 950], [3, 935], [2, 960], [1, 820]]
+  expected: BUY_NOW
+- name: high price in window, falling trend
+  watch: {budget_eur: 700}
+  history: [[12, 880], [11, 800], [10, 905], [9, 810], [8, 900], [3, 800], [2, 820], [1, 905]]
+  expected: WAIT
+- name: rising prices in window
+  watch: {budget_eur: 700}
+  history: [[12, 700], [11, 705], [10, 710], [9, 700], [3, 760], [2, 770], [1, 765]]
+  expected: BUY_NOW
+- name: middle price, flat trend
+  watch: {budget_eur: 600}
+  history: [[12, 800], [11, 700], [10, 900], [9, 750], [3, 850], [2, 760], [1, 780]]
+  expected: WATCH_CLOSELY
+- name: too early, normal price
+  watch: {peak: false, depart_window: {from: 2027-09-01}}
+  history: [[5, 800], [4, 810], [3, 790], [2, 805], [1, 800]]
+  expected: WAIT
+- name: short history under budget
+  watch: {budget_eur: 900}
+  history: [[2, 850], [1, 860]]
+  expected: BUY_NOW
+- name: short history over budget
+  watch: {budget_eur: 500}
+  history: [[2, 850], [1, 860]]
+  expected: WATCH_CLOSELY
+- name: late, any price
+  watch: {depart_window: {from: 2026-11-28}}
+  history: [[2, 1200], [1, 1250]]
+  expected: BUY_NOW

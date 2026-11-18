@@ -78,14 +78,17 @@ reliability:
     - '^kayak\.[a-z.]+/'
     - '^momondo\.[a-z.]+/'
   tier2_extra: []
-  # A price alert fires only when confirmed by a second observation within this window:
+  # A price alert fires only when independently confirmed within this window: another tier 1/2
+  # site, or the same site re-read by an independent extractor (never the same fare-reader twice).
+  independent_extractors: [main]
   confirm_window_h: 24
   same_source_tolerance_pct: 1    # same fare re-read on the same site
   cross_source_tolerance_pct: 5   # another tier 1/2 site
 
 # Buy/wait advisor (tw advise). Booking windows in days before departure; first match wins.
-advisor:
-  min_verified_obs: 5
+# The windows are heuristics, not measurements: advise says so and lowers confidence on short history.
+advise:
+  min_history: 5
   trend_days: 7
   rising_trend_pct: 5          # in-window price up this much over trend_days -> buy
   good_percentile: 25          # price at or below this percentile of own history = good
@@ -95,14 +98,22 @@ advisor:
   close_recheck_days: 3
   high_volatility_cv: 0.15     # coefficient of variation above this lowers confidence
   windows:
-    - {name: long-haul peak season, haul: long, peak: true, ideal_days: [120, 240]}
-    - {name: long-haul, haul: long, peak: false, ideal_days: [90, 180]}
-    - {name: short-haul peak season, haul: short, peak: true, ideal_days: [60, 120]}
-    - {name: short-haul, haul: short, peak: false, ideal_days: [30, 90]}
+    - {name: long-haul peak season, haul: long, peak: true, ideal_days: [120, 240], confidence: heuristic,
+       source: "rule of thumb from fare-trend studies; calibrate with your own verified history"}
+    - {name: long-haul, haul: long, peak: false, ideal_days: [90, 180], confidence: heuristic,
+       source: "rule of thumb from fare-trend studies; calibrate with your own verified history"}
+    - {name: short-haul peak season, haul: short, peak: true, ideal_days: [60, 120], confidence: heuristic,
+       source: "rule of thumb from fare-trend studies; calibrate with your own verified history"}
+    - {name: short-haul, haul: short, peak: false, ideal_days: [30, 90], confidence: heuristic,
+       source: "rule of thumb from fare-trend studies; calibrate with your own verified history"}
 
 research:
   max_fetches_per_watch: 6   # web pages per watch per run
+  max_subagent_calls_per_run: 4   # fare-reader calls per monitoring run; extra watches wait for the next run
   monitor_every_h: 6         # scheduled task frequency
+
+rollout:
+  shadow_days: 14   # from first use: verdicts are logged and shown on request, not pushed as notifications
 
 ideas:
   check_every_days: 7        # low-frequency deal/season check per idea

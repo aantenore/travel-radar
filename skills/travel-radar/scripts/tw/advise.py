@@ -11,7 +11,7 @@ from . import schema, store
 
 
 def _window(cfg, w):
-    for rule in cfg["advisor"]["windows"]:
+    for rule in cfg["advise"]["windows"]:
         if rule["haul"] == w.get("haul", "long") and bool(rule["peak"]) == bool(w.get("peak", False)):
             return rule
     raise schema.ValidationError([f"no advisor window for haul={w.get('haul')} peak={w.get('peak')}"])
@@ -38,16 +38,17 @@ def _trend(obs, now, days):
 
 def advise(cfg, con, w, now=None):
     now = now or datetime.now(timezone.utc)
-    c = cfg["advisor"]
+    c = cfg["advise"]
     today = now.date()
     days = (_depart(w) - today).days
     win = _window(cfg, w)
     lo, hi = win["ideal_days"]
     position = "early" if days > hi else ("late" if days < lo else "in_window")
     obs = [o for o in store.observations(con, w["id"]) if o.get("tier") in (1, 2)]
-    reasons = [f"{days} days to departure; booking window '{win['name']}' is {lo}-{hi} days before ({position})"]
+    reasons = [f"{days} days to departure; booking window '{win['name']}' is {lo}-{hi} days before ({position})",
+               f"booking window is a {win.get('confidence', 'heuristic')}: {win.get('source', 'no source given')}"]
     out = {"watch": w["id"], "days_to_departure": days, "window": win["name"], "position": position,
-           "verified_observations": len(obs)}
+           "window_confidence": win.get("confidence", "heuristic"), "verified_observations": len(obs)}
 
     def verdict(v, confidence, recheck=None):
         out.update(verdict=v, confidence=confidence, reasons=reasons,
@@ -77,10 +78,10 @@ def advise(cfg, con, w, now=None):
     if budget:
         reasons.append(f"{'under' if under else 'over'} budget {budget}€")
 
-    enough = len(obs) >= c["min_verified_obs"]
+    enough = len(obs) >= c["min_history"]
     if not enough:
-        reasons.append(f"only {len(obs)} verified observations (< {c['min_verified_obs']}): history too short to judge the price level")
-    confidence = "high" if len(obs) >= 2 * c["min_verified_obs"] else ("medium" if enough else "low")
+        reasons.append(f"only {len(obs)} verified observations (< {c['min_history']}): history too short to judge the price level")
+    confidence = "high" if len(obs) >= 2 * c["min_history"] else ("medium" if enough else "low")
     if cv is not None and cv > c["high_volatility_cv"] and confidence == "high":
         confidence = "medium"
         reasons.append(f"volatile prices (cv {cv})")

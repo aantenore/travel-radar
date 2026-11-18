@@ -33,8 +33,8 @@ class TierTest(unittest.TestCase):
 
 
 class RecordRulesTest(unittest.TestCase):
-    def check(self, url, dep, ret, watch=W):
-        return reliability.check_flight_observation(CFG, watch, url, dep, ret)
+    def check(self, url, dep, ret, watch=W, price=612, excerpt="FCO-PEK 612 € round trip", extractor="fare-reader"):
+        return reliability.check_flight_observation(CFG, watch, url, dep, ret, price, excerpt, extractor)
 
     def test_accepts_tiered_source_with_exact_dates(self):
         self.assertEqual(self.check("https://www.kayak.it/flights/FCO-PEK", "2027-06-03", "2027-06-20"), 2)
@@ -51,6 +51,12 @@ class RecordRulesTest(unittest.TestCase):
         for c in cases:
             with self.subTest(c=c), self.assertRaises(schema.ValidationError):
                 self.check(*c)
+
+    def test_excerpt_and_extractor_required(self):
+        url, d, r = "https://www.kayak.it/f", "2027-06-03", "2027-06-20"
+        for kw in ({"excerpt": "FCO-PEK 621 €"}, {"excerpt": None}, {"extractor": None}):
+            with self.subTest(kw=kw), self.assertRaises(schema.ValidationError):
+                self.check(url, d, r, **kw)
 
     def test_one_way_needs_no_return(self):
         self.assertEqual(self.check("https://www.ryanair.com/x", "2027-06-03", None, {**W, "one_way": True}), 1)

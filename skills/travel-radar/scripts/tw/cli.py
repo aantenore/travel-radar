@@ -2,6 +2,7 @@
 import argparse
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import advise as advise_mod, config, dossier, export, reliability, ideas, profile as profile_mod, schema, scoring, sources, store, trips, watches
@@ -84,6 +85,9 @@ def _parser():
     r.add_argument("--source", required=True); r.add_argument("--url", required=True)
     r.add_argument("--depart"); r.add_argument("--return", dest="return_date")
     r.add_argument("--carrier"); r.add_argument("--stops", type=int); r.add_argument("--note")
+    r.add_argument("--excerpt", help="verbatim page text that shows the price")
+    r.add_argument("--extractor", help="who read the page: fare-reader or main")
+    r.add_argument("--excerpt-price", type=float, help="price as shown on the page, if not in EUR")
     ck = wsub.add_parser("checked")
     ck.add_argument("--watch", required=True)
     ck.add_argument("--status", required=True, choices=["ok", "no_data", "error"]); ck.add_argument("--note")
@@ -92,6 +96,8 @@ def _parser():
 
     ad = sub.add_parser("advise", help="buy/wait verdict for a flight watch")
     ad.add_argument("--watch", required=True)
+    vh = sub.add_parser("verdicts", help="logged buy/wait verdicts for a watch")
+    vh.add_argument("--watch", required=True)
     sr = sub.add_parser("source-tier", help="tier of a URL: 1 airline, 2 meta-search, 0 context only")
     sr.add_argument("url")
     return p
@@ -151,9 +157,15 @@ def _run(a, cfg):
     if a.cmd == "advise":
         w = _watch(cfg, a.watch)
         res = advise_mod.advise(cfg, con, w)
-        if res["verdict"] in ("WAIT", "WATCH_CLOSELY") and res["recheck_date"]:
-            res["reminder"] = {"task_id": f"travel-radar-advise-{w['id']}", "fire_on": res["recheck_date"]}
+        store.set_recheck(con, w["id"], res.get("recheck_date"), res["verdict"])
+        first = datetime.fromisoformat(store.meta(con, "first_use"))
+        shadow = datetime.now(timezone.utc) < first + timedelta(days=cfg["rollout"]["shadow_days"])
+        res["shadow"] = shadow
+        res["notify"] = not shadow
+        store.log_verdict(con, res, shadow)
         return _out(res)
+    if a.cmd == "verdicts":
+        return _out(store.verdicts(con, a.watch))
     if a.cmd == "trip":
         if a.tcmd == "list":
             return _out(trips.list_all(cfg))
@@ -198,9 +210,11 @@ def _run(a, cfg):
         w = _watch(cfg, a.watch)
         tier = None
         if w.get("kind") in ("flight", "deal"):
-            tier = reliability.check_flight_observation(cfg, w, a.url, a.depart, a.return_date)
+            shown = a.excerpt_price if a.excerpt_price is not None else a.price_eur
+            tier = reliability.check_flight_observation(cfg, w, a.url, a.depart, a.return_date,
+                                                        shown, a.excerpt, a.extractor)
         store.add_observation(con, a.watch, a.price_eur, a.source, a.url, a.depart, a.return_date,
-                              a.carrier, a.stops, a.note, tier=tier)
+                              a.carrier, a.stops, a.note, tier=tier, excerpt=a.excerpt, extractor=a.extractor)
         return _out({"recorded": a.watch, "price_eur": a.price_eur, "tier": tier})
     if a.wcmd == "checked":
         _watch(cfg, a.watch)
