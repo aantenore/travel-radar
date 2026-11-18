@@ -27,6 +27,28 @@ class TierTest(unittest.TestCase):
         self.assertEqual(reliability.tier(CFG, "https://someblog.com/cheap-flights-china"), 0)
         self.assertEqual(reliability.tier(CFG, "https://fake-ita-airways.com.evil.net/"), 0)
 
+    def test_www_is_stripped_and_case_ignored(self):
+        for url in ("https://ita-airways.com/x", "https://www.ita-airways.com/x", "https://WWW.ITA-AIRWAYS.COM/x",
+                    "ita-airways.com/x"):
+            with self.subTest(url=url):
+                self.assertEqual(reliability.tier(CFG, url), 1)
+        self.assertEqual(reliability.tier(CFG, "https://www.kayak.it/flights"), 2)
+        self.assertEqual(reliability.tier(CFG, "https://kayak.it/flights"), 2)
+
+    def test_italy_china_carriers_and_regional_domains(self):
+        for url in ("https://www.brusselsairlines.com/it-it", "https://www.sichuanair.com/en", "https://www.saudia.com/",
+                    "https://www.xiamenair.com/en-us", "https://www.hnair.com/", "https://it.ceair.com/it/",
+                    "https://www.ceair.com/", "https://www.airchina.it/", "https://www.airchina.com.cn/en/",
+                    "https://www.csair.com/it/", "https://www.cathaypacific.com/cx/it_IT.html"):
+            with self.subTest(url=url):
+                self.assertEqual(reliability.tier(CFG, url), 1)
+
+    def test_lookalike_domains_rejected(self):
+        for url in ("https://notceair.com/", "https://ceair.com.evil.net/", "https://evil-saudia.com/",
+                    "https://brusselsairlines.com.cheap-flights.io/"):
+            with self.subTest(url=url):
+                self.assertEqual(reliability.tier(CFG, url), 0)
+
     def test_extra_patterns_from_config(self):
         cfg = {**CFG, "reliability": {**CFG["reliability"], "tier1_extra": [r"^myairline\.com/"]}}
         self.assertEqual(reliability.tier(cfg, "https://myairline.com/book"), 1)

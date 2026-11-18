@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 - 2026-11-18
+
+- Tier 1 sources: added Brussels Airlines, Sichuan Airlines, Saudia, Xiamen Airlines and Hainan (hnair.com); regional subdomains allowed for China Eastern, China Southern, Hainan, Sichuan, Xiamen and Cathay Pacific (e.g. it.ceair.com). Air China alternate domains (airchina.it, airchina.com.cn) already matched.
+- Tests for www-stripping, case, regional subdomains and lookalike domains.
+
 ## 0.4.0 - 2026-11-18
 
 Design review of 0.3.0 (agentic-architect, Standard depth).

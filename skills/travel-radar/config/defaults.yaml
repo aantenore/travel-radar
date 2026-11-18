@@ -40,16 +40,21 @@ alerts:
 # Which sources may produce a price observation. Regex on host+path, lowercase, without "www.".
 # Add your own with tier1_extra / tier2_extra in settings.yaml (lists are replaced, not merged).
 reliability:
-  tier1:   # airline official sites
+  tier1:   # airline official sites; "([a-z0-9-]+\.)?" allows regional subdomains (it.ceair.com)
     - '^ita-airways\.com/'
     - '^airchina\.[a-z.]+/'
-    - '^ceair\.com/'
-    - '^csair\.com/'
-    - '^hainanairlines\.com/'
-    - '^cathaypacific\.com/'
+    - '^([a-z0-9-]+\.)?ceair\.com/'
+    - '^([a-z0-9-]+\.)?csair\.com/'
+    - '^([a-z0-9-]+\.)?hainanairlines\.com/'
+    - '^([a-z0-9-]+\.)?hnair\.com/'
+    - '^([a-z0-9-]+\.)?sichuanair\.com/'
+    - '^([a-z0-9-]+\.)?xiamenair\.com/'
+    - '^([a-z0-9-]+\.)?cathaypacific\.com/'
     - '^lufthansa\.com/'
     - '^swiss\.com/'
     - '^austrian\.com/'
+    - '^brusselsairlines\.com/'
+    - '^saudia\.com/'
     - '^airfrance\.[a-z.]+/'
     - '^klm\.[a-z.]+/'
     - '^britishairways\.com/'
