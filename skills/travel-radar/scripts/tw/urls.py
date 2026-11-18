@@ -74,3 +74,49 @@ def safe_outbound(url):
         return False
     host = try_parse(url)[0]
     return bool(host) and is_public_host(host)
+
+
+def _is_global_ip(addr):
+    import ipaddress
+    ip = ipaddress.ip_address(addr.split("%")[0])
+    return ip.is_global and not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
+                                 or ip.is_reserved or ip.is_unspecified)
+
+
+class UnsafePeer(OSError):
+    pass
+
+
+def _guarded(conn_cls):
+    """Connection class that refuses to talk to a non-public peer. The check runs on the
+    socket actually connected (after DNS), before any request byte is sent, so a DNS answer
+    that changes between validation and connection (rebinding) cannot reach internal hosts."""
+    class Guarded(conn_cls):
+        def connect(self):
+            super().connect()
+            peer = self.sock.getpeername()[0]
+            if not _is_global_ip(peer):
+                self.sock.close()
+                raise UnsafePeer(f"refusing non-public address {peer} for {self.host}")
+    return Guarded
+
+
+def safe_opener(*extra_handlers):
+    """urllib opener for URLs that did not come from the user or config: direct connection
+    (environment proxies ignored), http/https only, and peer-address check on every connection."""
+    import http.client
+    import urllib.request
+
+    class H(urllib.request.HTTPHandler):
+        def http_open(self, req):
+            return self.do_open(_guarded(http.client.HTTPConnection), req)
+
+    class HS(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(_guarded(http.client.HTTPSConnection), req, context=self._context)
+
+    opener = urllib.request.OpenerDirector()
+    for h in (urllib.request.ProxyHandler({}), urllib.request.UnknownHandler(), H(), HS(),
+              urllib.request.HTTPDefaultErrorHandler(), urllib.request.HTTPErrorProcessor(), *extra_handlers):
+        opener.add_handler(h)
+    return opener

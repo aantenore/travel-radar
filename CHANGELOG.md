@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.5 - 2026-11-18
+
+Security fix from review of 0.8.4:
+- Redirect following uses a guarded opener: direct connections only (environment proxies ignored), and the address of the socket actually connected is checked before any request byte is sent, so a DNS answer that changes after validation (rebinding) cannot reach loopback, private or link-local hosts. This closes the residual risk noted in 0.8.3.
+
 ## 0.8.4 - 2026-11-18
 
 - `tw sources verify` now reports the same verdict `tw watch record` will use: the most specific fresh verdict for the URL (e.g. a path-scoped independent confirmation) wins over the domain-level registry result. The registry outcome is still shown under `registry`, with `effective_from` naming the verdict in use.

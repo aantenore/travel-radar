@@ -100,7 +100,7 @@ def redirect_chain(cfg, site):
         return _REDIRECTS[site]
     out, cur = [], site
     host0, path0 = urls.try_parse(site)
-    opener = urllib.request.build_opener(_NoFollow)
+    opener = urls.safe_opener(_NoFollow())
     for _ in range(cfg["wikidata"]["redirect_max_hops"]):
         if not urls.safe_outbound(cur):
             break

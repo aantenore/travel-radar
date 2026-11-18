@@ -243,6 +243,45 @@ class RedirectSafetyTest(unittest.TestCase):
             with self.subTest(url=bad):
                 self.assertFalse(urls.safe_outbound(bad))
 
+    def test_guarded_opener_refuses_non_public_peer_after_connect(self):
+        """Even if the pre-check were bypassed (DNS rebinding), the connected peer is checked."""
+        import socket
+        import threading
+        import urllib.error
+        import urllib.request
+        from tw import urls
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        got = []
+
+        def accept():
+            c, _ = srv.accept()
+            c.settimeout(1)
+            try:
+                got.append(c.recv(100))
+            except OSError:
+                got.append(b"")
+            c.close()
+        t = threading.Thread(target=accept, daemon=True)
+        t.start()
+        port = srv.getsockname()[1]
+        with self.assertRaises(urllib.error.URLError) as cm:
+            urls.safe_opener().open(urllib.request.Request(f"http://127.0.0.1:{port}/", method="HEAD"), timeout=3)
+        self.assertIn("non-public", str(cm.exception.reason))
+        t.join(2)
+        srv.close()
+        self.assertEqual(got, [b""])          # no request bytes were sent to the internal peer
+
+    def test_guarded_opener_ignores_env_proxies(self):
+        from tw import urls
+        import urllib.request
+        import os
+        from unittest import mock as m
+        with m.patch.dict(os.environ, {"HTTPS_PROXY": "http://10.0.0.1:3128", "HTTP_PROXY": "http://10.0.0.1:3128"}):
+            handlers = urls.safe_opener().handlers
+        self.assertFalse([h for h in handlers if isinstance(h, urllib.request.ProxyHandler) and h.proxies])
+
     def test_redirect_never_widens_scope(self):
         self.assertTrue(wikidata._narrower_or_sibling("/flights", "/travel/flights"))
         self.assertTrue(wikidata._narrower_or_sibling("/flights", "/flights/search"))
@@ -258,7 +297,7 @@ class RedirectSafetyTest(unittest.TestCase):
                 if req.full_url == "https://www.google.com/flights/":
                     raise urllib.error.HTTPError(req.full_url, 302, "Found", {"Location": location}, None)
                 return None
-        with mock.patch.object(wikidata.urllib.request, "build_opener", lambda *a: Opener()), \
+        with mock.patch.object(wikidata.urls, "safe_opener", lambda *a: Opener()), \
              mock.patch.object(wikidata.urls, "safe_outbound", lambda u: u.startswith("https://www.google.com")):
             return _REAL_REDIRECT_CHAIN(CFG, "https://www.google.com/flights/")
 
