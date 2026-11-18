@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.3 - 2026-11-18
+
+Security fixes from review of 0.8.2:
+- Outbound requests to registry-supplied URLs (redirect following) are allowed only for http/https hosts that resolve to public addresses: no loopback, private, link-local (cloud metadata), multicast or reserved targets. Residual risk: DNS can change between the check and the request; requests are HEAD-only with no body read.
+- Redirects can no longer widen a verdict: a redirect target must keep a non-empty path and must not be an ancestor of the original path, so a site registered with a path can never become a whole-domain verdict through a redirect to `/`.
+
 ## 0.8.2 - 2026-11-18
 
 - Security: one canonical URL parser (`tw/urls.py`) for verify, confirm, resolve and record. Rejects user info, invalid ports, encoded slashes and traversal segments; normalizes paths. Fixes a parser mismatch where a crafted URL could be checked under one host and cached or looked up under another.

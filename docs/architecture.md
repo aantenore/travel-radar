@@ -161,6 +161,7 @@ Date: 2026-11-18 · Status: accepted
   - the entity description counts as a secondary signal (`signal: description`, terms in config), only when the entity's official website already matches the page exactly, host and path;
   - moved official websites are followed through same-host redirects (bounded, HEAD only).
 - **Live check (2026-11-18)**: from an EU network Google's registered `/flights/` answers with a redirect to the consent page, not to `/travel/flights`, so the move cannot be observed and Google Flights stays unverified. It needs `tw sources confirm --scope path`. Matching was deliberately not loosened (for example by path suffix) to make it pass.
+- **Redirect safety (0.8.3)**: redirect following contacts only public http(s) hosts (no internal or metadata addresses) and accepts only targets that keep a non-empty path and do not widen the original path, so redirects can only produce path-scoped verdicts.
 - **One URL parser (0.8.2)**: every source decision uses the same parser. It rejects user info, invalid ports, encoded slashes and `..` segments, and normalizes paths, so a crafted URL cannot read or write another site's verdict.
 - **Consequences**: the system shifts by itself from methods that stop working; the cost of the browser path is paid only where it is needed.
 

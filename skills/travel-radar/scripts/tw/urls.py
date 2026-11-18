@@ -44,3 +44,33 @@ def try_parse(url):
         return parse(url)
     except URLError:
         return "", ""
+
+
+def is_public_host(host):
+    """True only if every address the host resolves to is public (not private, loopback,
+    link-local, multicast, reserved or unspecified). Used before any outbound request to a
+    URL that did not come from the user or from config."""
+    import ipaddress
+    import socket
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except (socket.gaierror, UnicodeError):
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0].split("%")[0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved
+                or ip.is_unspecified or not ip.is_global):
+            return False
+    return True
+
+
+def safe_outbound(url):
+    """http(s) URL whose host resolves only to public addresses."""
+    from urllib.parse import urlsplit
+    scheme = urlsplit(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        return False
+    host = try_parse(url)[0]
+    return bool(host) and is_public_host(host)

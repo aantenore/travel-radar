@@ -81,15 +81,29 @@ class _NoFollow(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _narrower_or_sibling(orig_path, new_path):
+    """A redirect may move a site sideways or deeper, never widen it: the target keeps a
+    non-empty path and is not an ancestor of the original path."""
+    if not new_path:
+        return False
+    return not (orig_path + "/").startswith(new_path + "/")
+
+
 def redirect_chain(cfg, site):
     """Same-host URLs a registered official site redirects to (bounded hops, HEAD, no body).
-    Official sites move (e.g. /flights -> /travel/flights); hops to another host are ignored."""
+    Official sites move (e.g. /flights -> /travel/flights). Safety rules:
+    - only http/https, and only hosts resolving to public addresses (no internal targets);
+    - hops to another host stop the chain;
+    - a target must keep a non-empty path and must not be an ancestor of the original path,
+      so a redirect never widens the verified scope to the whole domain."""
     if site in _REDIRECTS:
         return _REDIRECTS[site]
     out, cur = [], site
-    host0 = urls.try_parse(site)[0]
+    host0, path0 = urls.try_parse(site)
     opener = urllib.request.build_opener(_NoFollow)
     for _ in range(cfg["wikidata"]["redirect_max_hops"]):
+        if not urls.safe_outbound(cur):
+            break
         req = urllib.request.Request(cur, method="HEAD", headers={"User-Agent": cfg["http"]["user_agent"]})
         try:
             opener.open(req, timeout=cfg["http"]["timeout_s"])
@@ -99,7 +113,8 @@ def redirect_chain(cfg, site):
             if not loc:
                 break
             nxt = urllib.parse.urljoin(cur, loc)
-            if urls.try_parse(nxt)[0] != host0:
+            h, p = urls.try_parse(nxt)
+            if h != host0 or not _narrower_or_sibling(path0, p):
                 break
             out.append(nxt)
             cur = nxt

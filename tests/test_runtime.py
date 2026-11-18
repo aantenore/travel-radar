@@ -12,6 +12,7 @@ os.environ.setdefault("TRAVEL_RADAR_HOME", tempfile.mkdtemp(prefix="travel-radar
 from tw import access, advise, config, knowledge, reliability, schema, sources, store, wikidata  # noqa: E402
 
 CFG = config.settings()
+_REAL_REDIRECT_CHAIN = wikidata.redirect_chain
 wikidata.redirect_chain = lambda cfg, site: []   # unit tests never touch the network
 NOW = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
 
@@ -232,6 +233,40 @@ class RegistryGapsTest(unittest.TestCase):
         ents = {"Q1": {"label": "X", "sites": {"https://www.other.example/"}, "airline": False, "travel": False,
                        "gov": False, "description": "online flight booking service"}}
         self.assertEqual(wikidata.classify("https://www.google.com/travel/flights", ents, ["flight booking"])[0], 0)
+
+
+class RedirectSafetyTest(unittest.TestCase):
+    def test_outbound_only_public_http(self):
+        from tw import urls
+        for bad in ("file:///etc/passwd", "ftp://example.com/x", "http://127.0.0.1/x", "http://localhost/x",
+                    "http://10.0.0.5/x", "http://169.254.169.254/latest/meta-data", "http://[::1]/x"):
+            with self.subTest(url=bad):
+                self.assertFalse(urls.safe_outbound(bad))
+
+    def test_redirect_never_widens_scope(self):
+        self.assertTrue(wikidata._narrower_or_sibling("/flights", "/travel/flights"))
+        self.assertTrue(wikidata._narrower_or_sibling("/flights", "/flights/search"))
+        for wider in ("", "/travel"):
+            self.assertFalse(wikidata._narrower_or_sibling("/travel/flights", wider))
+
+    def chain(self, location):
+        import urllib.error
+        wikidata._REDIRECTS.clear()
+
+        class Opener:
+            def open(self, req, timeout=None):
+                if req.full_url == "https://www.google.com/flights/":
+                    raise urllib.error.HTTPError(req.full_url, 302, "Found", {"Location": location}, None)
+                return None
+        with mock.patch.object(wikidata.urllib.request, "build_opener", lambda *a: Opener()), \
+             mock.patch.object(wikidata.urls, "safe_outbound", lambda u: u.startswith("https://www.google.com")):
+            return _REAL_REDIRECT_CHAIN(CFG, "https://www.google.com/flights/")
+
+    def test_redirect_chain_rules(self):
+        self.assertEqual(self.chain("/travel/flights"), ["https://www.google.com/travel/flights"])
+        self.assertEqual(self.chain("/"), [])                                   # root: would widen to the domain
+        self.assertEqual(self.chain("https://consent.google.com/m?x"), [])      # other host
+        self.assertEqual(self.chain("https://evil.example/flights"), [])        # other host
 
 
 class URLParserTest(unittest.TestCase):
