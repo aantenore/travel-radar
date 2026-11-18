@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1 - 2026-11-18
+
+- Path-aware source verification: an official website registered with a path matches only URLs under that path (host + path prefix); the instance-of class check is still required. Verdicts are cached per domain + path, so e.g. a flight search section never makes the whole domain a travel site, and `google.com/search` stays unverified.
+- `tw sources confirm --scope path` for flight searches inside larger sites that the registry does not classify (live: Google Flights is registered as a website/search engine with an outdated path).
+- Browser reads are done by the main model and recorded with `--extractor main`; fare-reader stays WebSearch/WebFetch only (documented in the skill, agent and ADR-7).
+
 ## 0.8.0 - 2026-11-18
 
 - **Consultative intake**: `tw profile gaps --step` ranks the missing facts by impact (weights in config); the skill asks at most 3 natural questions with choices and "decidi tu", never re-asks (`tw profile defer`), and keeps trip-specific answers on the trip (`tw trip fact`). Richer profile: traveller (nationality, passports, residence), interests, accommodation style, daily budget, comfort, diet, mobility limits, languages, region experience, past trips, rhythm.

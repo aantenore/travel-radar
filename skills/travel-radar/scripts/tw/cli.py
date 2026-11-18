@@ -124,6 +124,8 @@ def _parser():
     sc = ssub.add_parser("confirm", help="verify via independent sources when the registry cannot decide")
     sc.add_argument("--url", required=True); sc.add_argument("--tier", type=int, default=0)
     sc.add_argument("--government", action="store_true", help="the domain is the official site of a government body")
+    sc.add_argument("--scope", choices=["domain", "path"], default="domain",
+                    help="path: the verdict covers only the URL's path (e.g. a flight search section of a larger site)")
     sc.add_argument("--evidence", action="append", required=True, help="URL of an independent site")
     sc.add_argument("--excerpt", action="append", required=True, help="verbatim text from that site (same order)")
     sp = ssub.add_parser("plan", help="ordered (source, method) attempts for a watch")
@@ -230,7 +232,7 @@ def _run(a, cfg):
             if len(a.evidence) != len(a.excerpt):
                 raise ValueError("give one --excerpt per --evidence, in the same order")
             return _out(reliability.confirm_source(cfg, con, a.url, a.tier, list(zip(a.evidence, a.excerpt)),
-                                                   government=a.government))
+                                                   government=a.government, scope=a.scope))
         if a.scmd == "plan":
             _watch(cfg, a.watch)
             cands, unverified = [], []

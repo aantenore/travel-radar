@@ -27,7 +27,7 @@ def verify_source(cfg, con, url, name=None, iata=None, now=None):
     domain = wikidata.registrable(host(url))
     r = cfg["reliability"]
     try:
-        v = wikidata.verify(cfg, domain, name, iata)
+        v = wikidata.verify(cfg, url, name, iata)
         prov = [f"https://www.wikidata.org/wiki/{v['qid']}"] if v["qid"] else [cfg["wikidata"]["api"]]
         if v["tier"] or v["government"]:
             verified_by, ttl = "wikidata", r["verify_ttl_days"]
@@ -41,19 +41,30 @@ def verify_source(cfg, con, url, name=None, iata=None, now=None):
     value = {k: v.get(k) for k in ("tier", "qid", "label", "match", "note")}
     value["official_site"] = bool(v.get("official_site"))
     value["government"] = bool(v.get("government"))
-    knowledge.put(con, "source", domain, value, prov, ttl, verified_by, now)
-    return {"domain": domain, **value, "verified_by": verified_by, "ttl_days": ttl}
+    key = scope_key(domain, v.get("scope"))
+    knowledge.put(con, "source", key, value, prov, ttl, verified_by, now)
+    return {"domain": domain, "scope": v.get("scope"), "key": key, **value, "verified_by": verified_by, "ttl_days": ttl}
 
 
-def confirm_source(cfg, con, url, tier, evidence, now=None, government=False):
+def scope_key(domain, scope):
+    """Cache key: the registrable domain, or domain + path when the verdict is path-scoped."""
+    return domain + scope if scope else domain
+
+
+def confirm_source(cfg, con, url, tier, evidence, now=None, government=False, scope="domain"):
     """Second runtime check when the registry cannot decide: at least N independent sites found
     now, none of them the candidate, each with a verbatim excerpt naming the candidate domain
     as the official airline (tier 1), travel search/booking site (tier 2) or, with
     `government`, the official site of a government body (tier 0)."""
     from . import knowledge, wikidata
     domain = wikidata.registrable(host(url))
+    path = wikidata._split(url)[1]
     r = cfg["reliability"]
     errors = []
+    if scope not in ("domain", "path"):
+        errors.append("--scope must be domain or path")
+    elif scope == "path" and not path:
+        errors.append("--scope path needs a URL with a path, e.g. https://www.example.com/flights")
     if tier not in (1, 2) and not (government and tier == 0):
         errors.append("--tier must be 1 (airline) or 2 (travel search/booking site), or 0 with --government")
     seen = set()
@@ -74,15 +85,25 @@ def confirm_source(cfg, con, url, tier, evidence, now=None, government=False):
     value = {"tier": tier, "qid": None, "label": None, "match": "independent_sources",
              "note": "; ".join(f"{src}: {ex[:160]}" for src, ex in evidence),
              "official_site": True, "government": bool(government)}
-    knowledge.put(con, "source", domain, value, [src for src, _ in evidence], r["independent_ttl_days"],
+    key = scope_key(domain, path if scope == "path" else None)
+    knowledge.put(con, "source", key, value, [src for src, _ in evidence], r["independent_ttl_days"],
                   "independent_sources", now)
-    return {"domain": domain, **value, "verified_by": "independent_sources", "ttl_days": r["independent_ttl_days"]}
+    return {"domain": domain, "key": key, **value, "verified_by": "independent_sources",
+            "ttl_days": r["independent_ttl_days"]}
 
 
 def resolve(cfg, con, url, now=None):
-    """Cached runtime verdict for the URL's domain: {tier, verified_by} or None if missing/expired."""
+    """Cached runtime verdict for the URL: the most specific fresh path-scoped verdict whose
+    path prefixes the URL path, else the domain verdict. None if missing/expired."""
     from . import knowledge, wikidata
-    k = knowledge.get(con, "source", wikidata.registrable(host(url)), now)
+    h, path = wikidata._split(url)
+    domain = wikidata.registrable(h)
+    k = None
+    for cand in knowledge.with_prefix(con, "source", domain + "/", now):
+        sp = cand["key"][len(domain):]
+        if cand["fresh"] and (path + "/").startswith(sp + "/") and (k is None or len(cand["key"]) > len(k["key"])):
+            k = cand
+    k = k or knowledge.get(con, "source", domain, now)
     if not k or not k["fresh"]:
         return None
     return {"tier": k["value"]["tier"], "verified_by": k["verified_by"],

@@ -53,6 +53,13 @@ def get(con, kind, key, now=None):
     return _row(r, now) if r else None
 
 
+def with_prefix(con, kind, prefix, now=None):
+    """All items of `kind` whose key starts with `prefix` (e.g. path-scoped source verdicts)."""
+    now = now or datetime.now(timezone.utc)
+    rows = con.execute("SELECT * FROM knowledge WHERE kind=? AND substr(key, 1, ?) = ?", (kind, len(prefix), prefix))
+    return [_row(r, now) for r in rows]
+
+
 def stale(con, now=None):
     now = now or datetime.now(timezone.utc)
     return [x for x in (_row(r, now) for r in con.execute("SELECT * FROM knowledge ORDER BY kind, key")) if not x["fresh"]]

@@ -155,6 +155,53 @@ class NoDomainListsGuard(unittest.TestCase):
         self.assertIn("deprecated", cfg["_deprecations"][0])
 
 
+class PathScopeTest(unittest.TestCase):
+    """Official websites registered with a path cover only that path, not the whole domain."""
+    ENTS = {"Q1": {"label": "Flight search", "sites": ["https://www.google.com/travel/flights"], "airline": False,
+                   "travel": True, "gov": False},
+            "Q2": {"label": "Google Flights (real record)", "sites": ["https://www.google.com/flights/"],
+                   "airline": False, "travel": False, "gov": False}}
+
+    def setUp(self):
+        self.con = store.connect(":memory:")
+
+    def test_match_site_path_prefix(self):
+        sites = ["https://www.google.com/travel/flights"]
+        self.assertEqual(wikidata.match_site("https://www.google.com/travel/flights/search?q=x", sites),
+                         ("exact", "/travel/flights"))
+        self.assertIsNone(wikidata.match_site("https://www.google.com/search?q=flights", sites))
+        self.assertIsNone(wikidata.match_site("https://www.google.com/travel/flightsabc", sites))
+        self.assertIsNone(wikidata.match_domain("www.google.com", sites))
+        self.assertEqual(wikidata.match_site("https://www.kayak.it/flights/x", ["https://www.kayak.com/"]), ("brand", None))
+
+    def test_classify_path_scoped_and_class_check_still_required(self):
+        self.assertEqual(wikidata.classify("https://www.google.com/travel/flights/s", {"Q1": self.ENTS["Q1"]})[:5:4],
+                         (2, "/travel/flights"))
+        self.assertEqual(wikidata.classify("https://www.google.com/search", {"Q1": self.ENTS["Q1"]})[0], 0)
+        self.assertEqual(wikidata.classify("https://www.google.com/flights/x", {"Q2": self.ENTS["Q2"]})[0], 0)
+
+    def test_path_scoped_verdict_does_not_cover_rest_of_domain(self):
+        ents = {k: {**v, "sites": v["sites"]} for k, v in self.ENTS.items() if k == "Q1"}
+        with mock.patch.object(wikidata, "by_site", lambda cfg, d: []), \
+             mock.patch.object(wikidata, "search", lambda cfg, n: ["Q1"]), \
+             mock.patch.object(wikidata, "describe", lambda cfg, q: {k: dict(v, sites=set(v["sites"])) for k, v in ents.items()}):
+            v = reliability.verify_source(CFG, self.con, "https://www.google.com/travel/flights", "x", now=NOW)
+        self.assertEqual((v["tier"], v["key"]), (2, "google.com/travel/flights"))
+        self.assertEqual(reliability.resolve(CFG, self.con, "https://www.google.com/travel/flights/search?tfs=1", NOW)["tier"], 2)
+        self.assertIsNone(reliability.resolve(CFG, self.con, "https://www.google.com/search?q=x", NOW))
+
+    def test_confirm_path_scope(self):
+        knowledge.put(self.con, "source", "google.com", {"tier": 0}, ["https://www.wikidata.org"], 1, "unverified", now=NOW)
+        ev = [("https://en.wikipedia.org/wiki/Google_Flights", "Google Flights at google.com/travel/flights"),
+              ("https://www.theverge.com/x", "flight search on google.com/travel/flights")]
+        r = reliability.confirm_source(CFG, self.con, "https://www.google.com/travel/flights", 2, ev, now=NOW, scope="path")
+        self.assertEqual(r["key"], "google.com/travel/flights")
+        self.assertEqual(reliability.resolve(CFG, self.con, "https://www.google.com/travel/flights/search", NOW)["tier"], 2)
+        self.assertEqual(reliability.resolve(CFG, self.con, "https://www.google.com/search", NOW)["tier"], 0)
+        with self.assertRaises(schema.ValidationError):
+            reliability.confirm_source(CFG, self.con, "https://www.google.com", 2, ev, now=NOW, scope="path")
+
+
 class KnowledgeTest(unittest.TestCase):
     def test_put_requires_sources_and_valid_window(self):
         con = store.connect(":memory:")

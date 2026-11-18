@@ -10,7 +10,7 @@ You read flight prices from web pages for one watch. You never record, book, log
 Input: the watch (origin, destination, departure window, trip length, one_way), the page budget, and the ordered list of verified sources to try (from `tw sources plan`). Rules:
 - Read only the sources in that list, in that order, for the exact dates of the watch.
 - Blogs, "flights from X" route pages, newsletters and averages are not prices: skip them.
-- A page that loads but shows no fares (empty shell, results rendered by JavaScript) → report it as no_data for that source with the reason "client-rendered".
+- You have no browser. A page that loads but shows no fares (empty shell, results rendered by JavaScript, consent wall) → report it as no_data for that source with the reason "client-rendered" or "consent wall"; the main model reads such pages in the browser.
 - Sites with captcha, login walls or blocked access: skip, do not retry.
 - Stay within the page budget you are given.
 

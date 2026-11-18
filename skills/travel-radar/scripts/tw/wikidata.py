@@ -32,15 +32,43 @@ def _host(url):
 
 
 def match_domain(domain, official_sites):
-    """'exact' if the registrable domains match, 'brand' if only the brand label matches
-    (country variants such as kayak.it vs kayak.com), else None."""
-    reg = registrable(domain)
-    regs = {registrable(_host(s)) for s in official_sites if _host(s)}
-    if reg in regs:
-        return "exact"
-    if brand(domain) in {r.split(".")[0] for r in regs}:
-        return "brand"
-    return None
+    """'exact' / 'brand' / None for a bare domain (no path). Path-scoped official sites do not
+    match a bare domain: use `match_site` with the full URL."""
+    ms = match_site(domain, official_sites)
+    return ms[0] if ms else None
+
+
+def _split(url):
+    m = re.match(r"^(?:[a-z]+://)?([^/:?#]+)(?::\d+)?([^?#]*)", url.strip().lower())
+    return (m.group(1), (m.group(2) or "").rstrip("/")) if m else ("", "")
+
+
+def match_site(url, official_sites):
+    """(match, scope_path) of `url` against registered official websites, or None.
+
+    - root website (https://www.kayak.com) → matches the whole domain (scope None);
+    - website with a path (https://www.google.com/travel/flights) → matches only URLs under
+      that path prefix (scope "/travel/flights"); the rest of the domain does not inherit it.
+    `match` is 'exact' (same registrable domain) or 'brand' (country variant of the brand)."""
+    host, path = _split(url)
+    best = None
+    for site in official_sites:
+        sh, sp = _split(site)
+        if not sh:
+            continue
+        if registrable(sh) == registrable(host):
+            m = "exact"
+        elif brand(sh) == brand(host):
+            m = "brand"
+        else:
+            continue
+        if sp and not (path + "/").startswith(sp + "/"):
+            continue
+        cand = (m, sp or None)
+        rank = (0 if m == "exact" else 1, 0 if sp else 1)          # exact first, then most specific
+        if best is None or rank < best[0]:
+            best = (rank, cand)
+    return best[1] if best else None
 
 
 def _sparql(cfg, query):
@@ -99,34 +127,39 @@ def describe(cfg, qids):
     return out
 
 
-def classify(domain, entities):
-    """Pure decision: best (tier, qid, label, match) for `domain` among described entities.
-    Tier 1 beats tier 2; an exact domain match beats a brand (country variant) match."""
-    best, best_rank = (0, None, None, None), None
+def classify(url, entities):
+    """Pure decision: best (tier, qid, label, match, scope) for `url` among described entities.
+    Tier 1 beats tier 2; an exact domain match beats a brand (country variant) match.
+    The class check (airline / travel site) is always required."""
+    best, best_rank = (0, None, None, None, None), None
     for qid, e in entities.items():
-        m = match_domain(domain, e["sites"])
+        ms = match_site(url, e["sites"])
         t = 1 if e["airline"] else (2 if e["travel"] else 0)
-        if not m or not t:
+        if not ms or not t:
             continue
-        rank = (t, 0 if m == "exact" else 1)
+        rank = (t, 0 if ms[0] == "exact" else 1)
         if best_rank is None or rank < best_rank:
-            best, best_rank = (t, qid, e["label"], m), rank
+            best, best_rank = (t, qid, e["label"], ms[0], ms[1]), rank
     return best
 
 
-def official(domain, entities):
-    """Pure decision: an entity whose official website matches `domain` (exact or brand), and
-    whether that entity is a government body / diplomatic mission / intergovernmental org."""
+def official(url, entities):
+    """Pure decision: an entity whose official website matches `url` (exact or brand, path-aware),
+    and whether that entity is a government body / diplomatic mission / intergovernmental org."""
     best = None
     for qid, e in entities.items():
-        m = match_domain(domain, e["sites"])
-        if m and (best is None or (m == "exact" and best["match"] != "exact") or (e["gov"] and not best["government"])):
-            best = {"entity": qid, "label": e["label"], "match": m, "government": e["gov"]}
+        ms = match_site(url, e["sites"])
+        if not ms:
+            continue
+        m = ms[0]
+        if best is None or (m == "exact" and best["match"] != "exact") or (e["gov"] and not best["government"]):
+            best = {"entity": qid, "label": e["label"], "match": m, "scope": ms[1], "government": e["gov"]}
     return best
 
 
-def verify(cfg, domain, name=None, iata=None):
-    """Raises sources.SourceError if Wikidata cannot be reached."""
+def verify(cfg, url, name=None, iata=None):
+    """Raises sources.SourceError if Wikidata cannot be reached. `url` may carry a path."""
+    domain = _split(url)[0]
     qids = by_site(cfg, domain)
     if iata:
         qids += by_iata(cfg, iata)
@@ -134,9 +167,10 @@ def verify(cfg, domain, name=None, iata=None):
         qids += search(cfg, n)
     qids = list(dict.fromkeys(qids))
     ents = describe(cfg, qids)
-    tier, qid, label, match = classify(domain, ents)
-    off = official(domain, ents)
-    return {"domain": registrable(domain), "tier": tier, "qid": qid or (off or {}).get("entity"),
+    tier, qid, label, match, scope = classify(url, ents)
+    off = official(url, ents)
+    return {"domain": registrable(domain), "scope": scope if tier else (off or {}).get("scope"),
+            "tier": tier, "qid": qid or (off or {}).get("entity"),
             "label": label or (off or {}).get("label"), "match": match or (off or {}).get("match"),
             "official_site": bool(off), "government": bool(off and off["government"] and off["match"] == "exact"),
             "candidates": qids, "verified_by": "wikidata"}
