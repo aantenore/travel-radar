@@ -19,6 +19,12 @@ sources:
   forecast: https://api.open-meteo.com/v1/forecast
   holidays: https://date.nager.at/api/v3/PublicHolidays
 
+geocoding:
+  languages: [en]         # names are matched per language: add yours in settings.yaml (e.g. [en, it])
+  candidates: 10          # hits requested per name
+  candidates_filtered: 100   # when a region/country filter is given
+  dominance_ratio: 20     # accept the most populous hit only if this many times larger than the next
+
 climate:
   years_back: 5
   rain_day_mm: 1.0
@@ -65,7 +71,11 @@ wikidata:
   travel_description_terms: [flight booking, flight search, airfare, air fare, travel booking, travel search, online travel agency, metasearch]
   redirect_max_hops: 3       # follow moved official websites (same host only)
   # classes: government agency, public authority, diplomatic mission, embassy, ministry of foreign affairs, ministry, intergovernmental org
-  government_classes: [Q327333, Q4383245, Q213283, Q3917681, Q20901295, Q192350, Q245065]
+  government_classes: [Q327333, Q4383245, Q213283, Q3917681, Q7843791, Q20901295, Q192350, Q245065]   # + consulate
+  # A country's own official website (P856 of a country / sovereign state item) is its government portal.
+  country_classes: [Q6256, Q3624078]
+  # Subdomains inherit government status from a verified parent domain, at most this many levels up.
+  government_parent_depth: 3
 
 # How pages are read. Order is learned per source from measured outcomes (tw sources plan).
 access:
@@ -74,6 +84,11 @@ access:
     serpapi: {env: SERPAPI_KEY, endpoint: "https://serpapi.com/search.json", engine: google_flights}
   prior_success: 0.5             # assumed success rate of an untried (source, method)
   max_plan_steps: 6
+
+# Fares far ahead are often unpublished placeholders or full fares: kept, but ignored by advise and alerts.
+# Market of a watch: international (default) or domestic, set on the watch from the route.
+fares:
+  provisional_horizon_days: {international: 330, domestic: 120}
 
 # Buy/wait advisor (tw advise). Booking windows in days before departure; first match wins.
 # Booking windows are researched at runtime per route and season (tw knowledge, kind booking_window).
@@ -106,6 +121,8 @@ research:
 
 requirements:
   safety_margin_days: 14     # deadline = departure - lead_time - margin
+  # Categories whose answer depends on the traveller's nationality: without it they stay `unknown`.
+  nationality_dependent: [entry, passport, transit, registration, citizen_registration]
   ttl_days:                  # re-verify after (days), per category
     entry: 14
     passport: 30
@@ -164,6 +181,10 @@ scoring:
   default_weights: {cost: 0.30, climate: 0.25, crowds: 0.20, authenticity: 0.15, logistics: 0.10}
   cost_full_score_ratio: 0.8   # <= 80% of budget -> full score
   cost_zero_score_ratio: 1.2   # >= 120% of budget -> zero
+  # Without a budget (unknown or deferred by the user) cost is scored relative to the options compared:
+  # cheapest = 1.0, most expensive = most_expensive_score, linear in between.
+  relative_cost:
+    most_expensive_score: 0.0
   climate_penalty_per_deg: 0.08
   rain_penalty_per_day: 0.05
   # Used while the matching profile field is still null.

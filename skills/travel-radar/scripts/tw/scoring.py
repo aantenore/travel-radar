@@ -23,7 +23,21 @@ def _weights(cfg, profile):
     return {k: v / tot for k, v in w.items()}
 
 
-def score_option(cfg, profile, opt):
+def budget_for(profile, trip=None):
+    """(budget, mode): the trip's own budget fact, else the profile budget; 'relative' when none
+    is known or the user deferred it ("no strict limit, as cheap as possible")."""
+    deferred = {d.get("key") for d in profile.get("deferred") or []}
+    fact = (((trip or {}).get("facts") or {}).get("trip_budget_eur") or {}).get("value")
+    if fact and "trip.trip_budget_eur" not in deferred:
+        return fact, "budget"
+    b = (profile.get("constraints") or {}).get("budget_total_eur")
+    if b and "constraints.budget_total_eur" not in deferred:
+        return b, "budget"
+    return None, "relative"
+
+
+def score_option(cfg, profile, opt, cost_ctx=None):
+    """`cost_ctx` = {"mode": "budget"|"relative", "budget": n, "min": n, "max": n} from score_trip."""
     s = cfg["scoring"]
     dflt = s["profile_defaults"]
     used_defaults, conflicts, missing = [], [], []
@@ -36,10 +50,19 @@ def score_option(cfg, profile, opt):
         return v
 
     # cost
-    budget = (profile.get("constraints") or {}).get("budget_total_eur")
+    cost_ctx = cost_ctx or {"mode": "budget", "budget": (profile.get("constraints") or {}).get("budget_total_eur")}
+    budget = cost_ctx.get("budget") if cost_ctx["mode"] == "budget" else None
     cost = opt.get("est_cost_eur")
     if cost is None:
         missing.append("est_cost_eur")
+    elif cost_ctx["mode"] == "relative":
+        lo, hi = cost_ctx.get("min"), cost_ctx.get("max")
+        rel = s["relative_cost"]
+        if lo is None or hi is None or hi <= lo:
+            comp["cost"] = 1.0
+        else:
+            frac = (cost - lo) / (hi - lo)                      # 0 = cheapest, 1 = most expensive
+            comp["cost"] = _clamp(1.0 - frac * (1.0 - rel["most_expensive_score"]))
     elif budget:
         r = cost / budget
         lo, hi = s["cost_full_score_ratio"], s["cost_zero_score_ratio"]
@@ -153,11 +176,15 @@ def _apply_context(res, trip, opt, reqs, geo):
 
 def score_trip(cfg, profile, trip, reqs=None, geo=None):
     results = []
+    budget, mode = budget_for(profile, trip)
+    costs = [o["est_cost_eur"] for o in trip.get("options", []) if o.get("est_cost_eur") is not None]
+    cost_ctx = {"mode": mode, "budget": budget, "min": min(costs) if costs else None, "max": max(costs) if costs else None}
     for o in trip.get("options", []):
         opt = dict(o)
         levels = [i["safety_level"] for i in geo or [] if "safety_level" in i and _applies(i, trip, o)]
         if levels:
             opt["safety_level"] = max(levels + [o.get("safety_level") or 0])
-        results.append(_apply_context(score_option(cfg, profile, opt), trip, o, reqs, geo))
+        results.append(_apply_context(score_option(cfg, profile, opt, cost_ctx), trip, o, reqs, geo))
     ranked = sorted(results, key=lambda r: (r["score"] is None, -(r["score"] or 0)))
-    return {"trip": trip.get("id"), "ranking": ranked}
+    return {"trip": trip.get("id"), "cost_mode": mode, "budget_eur": budget,
+            "cost_range_eur": [cost_ctx["min"], cost_ctx["max"]] if costs else None, "ranking": ranked}

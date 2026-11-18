@@ -13,7 +13,7 @@ User data lives in the data home (`$TRAVEL_RADAR_HOME`, default `~/.travel-radar
 | Need | Command |
 |---|---|
 | Coordinates | `tw geocode "<place>"` |
-| Monthly climate normals | `tw climate --place "<place>" --months 4,5` |
+| Monthly climate normals | `tw climate --place "<Name, Region>" --months 4,5` (or `--admin1`, `--country`, `--lat/--lon`). An `ambiguous place` error lists candidates: pick one by region/prefecture or coordinates, never guess |
 | Next 16 days forecast | `tw forecast --place "<place>"` |
 | Public holidays | `tw holidays --country CN --year 2027 [--from --to]` |
 | Score options vs profile | `tw score <home>/trips/<id>/trip.yaml` |
@@ -122,6 +122,7 @@ budget_eur: 800
 haul: long                  # long | short (advisor booking window)
 peak: true                  # peak season for this route, judged from sources
 one_way: false              # true only for one-way fares
+market: international       # international | domestic (sets the published-fare horizon)
 active: true
 ```
 `kind: safety` → re-verify destination safety and entry rules, update the dossier; `kind: weather` → `tw forecast` once departure is < 16 days away.
@@ -160,7 +161,7 @@ Keep it cheap:
    b. `tw sources plan --watch <id> --candidates <...> [--browser if browser tools are available in this session]` → follow the steps in order until enough fares or the page budget is spent.
    c. `webfetch` steps → the plugin's **fare-reader** subagent (read-only, cheaper model), at most once per watch per run, given those steps. `browser` steps → the main model itself with the browser tools (fare-reader has no browser): decline non-essential cookies, fill only the search form (route and dates), never log in or enter personal data; record those fares with `--extractor main`. Pass `--browser` to `tw sources plan` only when browser tools are present in this session. `api:<name>` steps → `tw sources api --adapter <name> --watch <id> --depart <d> --return <d>`.
    d. After each attempt: `tw sources record-access --domain <d> --method <m> --outcome ok|no_data|blocked|error --note "<why>"`.
-   For each fare obtained, on the main model: `tw watch record --watch <id> --price-eur <EUR> --source <domain> --url <url> --depart <d> --return <d> --carrier <c> --stops <n> --excerpt "<excerpt>" --extractor fare-reader|main|api:<name>` (add `--excerpt-price <page price>` and the rate's source in `--note` when the page currency is not EUR). The CLI rejects sources not verified at runtime (or expired), untiered sources, missing or out-of-window dates and prices absent from the excerpt; drop those. Then `tw watch checked --watch <id> --status ok|no_data|error --note "<reason>"`.
+   For each fare obtained, on the main model: `tw watch record --watch <id> --price-eur <EUR> --source <domain> --url <url> --depart <d> --return <d> --carrier <c> --stops <n> --excerpt "<excerpt>" --extractor fare-reader|main|api:<name> [--provisional]` (add `--provisional` when a fare looks like an unpublished placeholder or full fare; code also marks fares beyond `fares.provisional_horizon_days` for the watch's market; provisional fares are ignored by advise and alerts; add `--excerpt-price <page price>` and the rate's source in `--note` when the page currency is not EUR). The CLI rejects sources not verified at runtime (or expired), untiered sources, missing or out-of-window dates and prices absent from the excerpt; drop those. Then `tw watch checked --watch <id> --status ok|no_data|error --note "<reason>"`.
 4. safety watches: re-check geopolitics (section 9) and required items (section 10) for the trip; any severity, trend or requirement change → alert with sources. weather watches: `tw forecast`, summarize anomalies. Always `tw watch checked`.
 5. `tw watch evaluate`, on the main model:
    - `pending_confirmation` → confirm independently: either open the same fare yourself and record it with `--extractor main`, or find it on another tier 1/2 site. Never ask fare-reader to re-read it. Then evaluate again; still unconfirmed → no notification.

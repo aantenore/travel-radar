@@ -240,7 +240,7 @@ def resume(cfg, con, trip_id, today=None, confirmed_by_user=None):
         save(cfg, trip)
     from . import experiences, geopolitics, requirements
     geo = geopolitics.check(cfg, trip_id, today)
-    req = requirements.check(cfg, trip_id, today)
+    req = requirements.check(cfg, trip_id, today, profile=config.profile(cfg))
     exp = experiences.check(cfg, trip_id, today)
     return {
         "geopolitics": {"reverify_first": geo["stale"], "current": [g for g in geo["items"] if g["severity"] != "info"]},

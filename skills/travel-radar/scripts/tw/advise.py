@@ -58,6 +58,7 @@ def advise(cfg, con, w, now=None):
     lo, hi = win["ideal_days"]
     position = "early" if days > hi else ("late" if days < lo else "in_window")
     obs = [o for o in store.observations(con, w["id"]) if o.get("tier") in (1, 2)]
+    n_prov = store.provisional_count(con, w["id"])
     reasons = [f"{days} days to departure; booking window '{win['name']}' is {lo}-{hi} days before ({position})",
                f"booking window is a {win.get('confidence', 'heuristic')}: {win.get('source', 'no source given')}"]
     out = {"watch": w["id"], "days_to_departure": days, "window": win["name"], "position": position,
@@ -69,6 +70,8 @@ def advise(cfg, con, w, now=None):
                    recheck_date=recheck.isoformat() if recheck else None)
         return out
 
+    if n_prov:
+        reasons.append(f"{n_prov} provisional fare(s) ignored (departure beyond the published-fare horizon or flagged)")
     if days < 0:
         reasons.append("departure date has passed")
         return verdict("WATCH_CLOSELY", "low")

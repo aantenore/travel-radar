@@ -1,7 +1,7 @@
 # Visas, permits and everything needed
 
 Runtime research, official sources first; never fill any application or enter personal data: give the official link and the steps, the user applies.
-- Needs `traveller.nationality` (and passport expiry): if missing, ask that one question (`tw profile gaps --step requirements`).
+- Needs `traveller.nationality` (and passport expiry): if missing, ask that one question (`tw profile gaps --step requirements`). Without it, nationality-dependent items (config `requirements.nationality_dependent`) are stored as `unknown` with `assumed_nationality`, and `tw requirements check` returns `ask: [traveller.nationality]`. Items researched for another nationality become stale when the profile changes.
 - Cover for each option and each place:
   - entry: visa or exemption, type, eligibility for this nationality, where and how to apply (online, in person, biometrics), documents, cost, processing time;
   - passport validity and blank pages;

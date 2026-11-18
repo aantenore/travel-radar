@@ -29,7 +29,7 @@ def verify_source(cfg, con, url, name=None, iata=None, now=None):
     except sources.SourceError as e:
         v = {"domain": domain, "tier": 0, "note": f"registry unreachable: {e}"}
         prov, verified_by, ttl = [cfg["wikidata"]["api"]], "unverified", r["unverified_ttl_days"]
-    value = {k: v.get(k) for k in ("tier", "qid", "label", "match", "note", "signal")}
+    value = {k: v.get(k) for k in ("tier", "qid", "label", "match", "note", "signal", "government_via_parent")}
     value["official_site"] = bool(v.get("official_site"))
     value["government"] = bool(v.get("government"))
     key = scope_key(domain, v.get("scope"))
@@ -106,6 +106,17 @@ def resolve(cfg, con, url, now=None):
         return None
     return {"key": k["key"], "tier": k["value"]["tier"], "verified_by": k["verified_by"],
             "official_site": bool(k["value"].get("official_site")), "government": bool(k["value"].get("government"))}
+
+
+def fare_status(cfg, watch, depart, flagged=False, today=None):
+    """'provisional' when the model flags it, or when departure is beyond the booking horizon of
+    the watch's market (config fares.provisional_horizon_days); otherwise 'normal'."""
+    from datetime import date as _date
+    if flagged:
+        return "provisional"
+    horizon = cfg["fares"]["provisional_horizon_days"].get(watch.get("market", "international"))
+    days = (_d(depart, "depart") - (today or _date.today())).days
+    return "provisional" if horizon is not None and days > horizon else "normal"
 
 
 def independent(cfg, a, b):

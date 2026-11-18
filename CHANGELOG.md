@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0 - 2026-11-18
+
+Fixes from the live end-to-end test.
+- Scoring: without a budget (unknown or deferred) cost is scored relative to the options compared (cheapest 1.0, most expensive `scoring.relative_cost.most_expensive_score`); a trip budget fact wins over the profile budget. Output reports `cost_mode`, `budget_eur`, `cost_range_eur`.
+- Geocoding never picks silently:
+  - several places → `ambiguous place` error with candidates (region, prefecture, coordinates);
+  - disambiguate with `"Name, Region"`, `--admin1` (also matches prefecture/county), `--country` or `--lat/--lon`;
+  - a clearly dominant place by population is accepted and reported with alternatives;
+  - names are searched in `geocoding.languages`: add yours in settings, e.g. `[en, it]` for "Pechino".
+- Government sources:
+  - a country item's own official website counts (e.g. gov.uk);
+  - consulates added to the government classes;
+  - subdomains inherit government status from a verified parent domain (e.g. a consulate under gov.cn), up to `government_parent_depth`, fail-closed.
+- Requirements: nationality-dependent categories need `traveller.nationality`; without it items become `unknown` with `assumed_nationality` and `check` asks for it; a later nationality change makes them stale.
+- Provisional fares: observations get `fare_status`; fares beyond `fares.provisional_horizon_days` for the watch `market` (international/domestic) or flagged with `--provisional` are kept but ignored by alerts and advise (which says so).
+- `tw requirements check` lists each item once, with the earliest deadline and its options.
+
 ## 0.8.5 - 2026-11-18
 
 Security fix from review of 0.8.4:

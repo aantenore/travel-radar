@@ -234,6 +234,8 @@ Everything you own lives outside the plugin, so updates never touch it:
 Defaults are in [`skills/travel-radar/config/defaults.yaml`](skills/travel-radar/config/defaults.yaml). Override any key in `~/.travel-radar/settings.yaml`; it is deep-merged, so you only write what changes:
 
 ```yaml
+geocoding:
+  languages: [en, it]   # search place names in your language too
 alerts:
   drop_pct: 15
 research:

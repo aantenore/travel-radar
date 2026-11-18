@@ -11,6 +11,7 @@ from tw import (config, experiences, export, geopolitics, knowledge, profile, re
                 schema, scoring, store, trips)
 
 NOW = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
+PROF = {"traveller": {"nationality": "IT"}}
 TODAY = NOW.date()
 ACC = TODAY.isoformat()
 
@@ -46,7 +47,7 @@ class Base(unittest.TestCase):
 
 class RequirementsTest(Base):
     def test_required_from_unofficial_only_becomes_unknown(self):
-        r = requirements.add(self.cfg, self.con, "t1", [
+        r = requirements.add(self.cfg, self.con, "t1", profile=PROF, items=[
             {"id": "visa", "category": "entry", "status": "required", "action": "Get a visa", "lead_time_days": 30,
              "sources": self.src("news-a.example")}], now=NOW)
         self.assertEqual(r["downgraded"][0]["id"], "visa")
@@ -54,13 +55,13 @@ class RequirementsTest(Base):
 
     def test_deadline_computed_and_lead_time_required(self):
         with self.assertRaises(schema.ValidationError):
-            requirements.add(self.cfg, self.con, "t1", [
+            requirements.add(self.cfg, self.con, "t1", profile=PROF, items=[
                 {"id": "visa", "category": "entry", "status": "required", "action": "Get a visa",
                  "sources": self.src("gov.example")}], now=NOW)
         with self.assertRaises(schema.ValidationError):
-            requirements.add(self.cfg, self.con, "t1", [
+            requirements.add(self.cfg, self.con, "t1", profile=PROF, items=[
                 {"id": "x", "category": "entry", "status": "required", "action": "x", "lead_time_days": 3, "sources": []}], now=NOW)
-        requirements.add(self.cfg, self.con, "t1", [
+        requirements.add(self.cfg, self.con, "t1", profile=PROF, items=[
             {"id": "visa", "category": "entry", "status": "required", "action": "Get a visa", "lead_time_days": 30,
              "sources": self.src("gov.example")},
             {"id": "permit", "category": "permits", "status": "required", "action": "Area permit", "lead_time_days": 60,
@@ -75,8 +76,35 @@ class RequirementsTest(Base):
         self.assertEqual({b["id"] for b in late["blockers"]}, {"visa", "permit"})
         self.assertEqual({s["id"] for s in late["stale"]}, {"visa", "permit"})
 
+    def test_nationality_required_for_dependent_categories(self):
+        requirements.add(self.cfg, self.con, "t1", profile={}, items=[
+            {"id": "visa", "category": "entry", "status": "required", "action": "Get a visa", "lead_time_days": 30,
+             "sources": self.src("gov.example")},
+            {"id": "drone", "category": "drones", "status": "required", "action": "Drone permit", "lead_time_days": 10,
+             "sources": self.src("gov.example")}], now=NOW)
+        items = {i["id"]: i for i in requirements.load(self.cfg, "t1")}
+        self.assertEqual((items["visa"]["status"], items["visa"]["assumed_nationality"]), ("unknown", True))
+        self.assertEqual(items["drone"]["status"], "required")          # not nationality-dependent
+        c = requirements.check(self.cfg, "t1", TODAY, profile={})
+        self.assertEqual(c["ask"], ["traveller.nationality"])
+
+    def test_nationality_change_makes_items_stale(self):
+        requirements.add(self.cfg, self.con, "t1", profile=PROF, items=[
+            {"id": "visa", "category": "entry", "status": "required", "action": "Get a visa", "lead_time_days": 30,
+             "sources": self.src("gov.example")}], now=NOW)
+        c = requirements.check(self.cfg, "t1", TODAY, profile={"traveller": {"nationality": "FR"}})
+        self.assertIn("nationality", c["stale"][0]["reason"])
+
+    def test_deadlines_grouped_by_item(self):
+        requirements.add(self.cfg, self.con, "t1", profile=PROF, items=[
+            {"id": "visa", "category": "entry", "status": "required", "action": "Get a visa", "lead_time_days": 30,
+             "applies_to": {"options": ["a", "b"]}, "sources": self.src("gov.example")}], now=NOW)
+        d = requirements.check(self.cfg, "t1", TODAY, profile=PROF)["deadlines"]
+        self.assertEqual(len(d), 1)
+        self.assertEqual(d[0]["options"], ["a", "b"])
+
     def test_infeasible_required_permit_excludes_option(self):
-        requirements.add(self.cfg, self.con, "t1", [
+        requirements.add(self.cfg, self.con, "t1", profile=PROF, items=[
             {"id": "permit", "category": "permits", "status": "required", "action": "Border-zone permit",
              "lead_time_days": 45, "feasible_in_window": False, "applies_to": {"options": ["a"]},
              "sources": self.src("gov.example")}], now=NOW)
@@ -146,7 +174,7 @@ class ExperiencesTest(Base):
             self.exp(), self.exp(id="e2", name="Night market", booking={
                 "method": "online_link", "url": "https://random-tickets.example/x", "lead_time_days": 3})], self.KEYS, now=NOW)
         self.assertEqual(r["unverified_links"], ["e2"])
-        requirements.add(self.cfg, self.con, "t1", [
+        requirements.add(self.cfg, self.con, "t1", profile=PROF, items=[
             {"id": "visa", "category": "entry", "status": "required", "action": "Apply for visa", "lead_time_days": 30,
              "sources": self.src("gov.example")}], now=NOW)
         cal = export.ics(self.cfg, trips.load(self.cfg, "t1"), now=NOW)

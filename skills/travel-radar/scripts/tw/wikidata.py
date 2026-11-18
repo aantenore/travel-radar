@@ -158,7 +158,7 @@ def describe(cfg, qids):
     vals = " ".join(f"wd:{q}" for q in qids if re.fullmatch(r"Q\d+", q))
     air = " ".join(f"wd:{q}" for q in w["airline_classes"])
     trav = " ".join(f"wd:{q}" for q in w["travel_classes"])
-    gov = " ".join(f"wd:{q}" for q in w["government_classes"])
+    gov = " ".join(f"wd:{q}" for q in w["government_classes"] + w.get("country_classes", []))
     q = (f"SELECT ?item ?itemLabel ?itemDescription ?site ?iata ?air ?trav ?gov WHERE {{ VALUES ?item {{ {vals} }} "
          f"OPTIONAL {{ ?item wdt:P856 ?site }} OPTIONAL {{ ?item wdt:P229 ?iata }} "
          f"BIND(EXISTS {{ ?item (wdt:P31|wdt:P279)/wdt:P279* ?a . VALUES ?a {{ {air} }} }} AS ?air) "
@@ -218,6 +218,26 @@ def official(url, entities):
     return best
 
 
+def parent_hosts(host, depth):
+    """adelaide.china-consulate.gov.cn -> [china-consulate.gov.cn, gov.cn] (never a bare TLD)."""
+    labels = host.lower().split(".")
+    if labels and labels[0] == "www":
+        labels = labels[1:]
+    out = [".".join(labels[i:]) for i in range(1, len(labels)) if len(labels) - i >= 2]
+    return out[:depth]
+
+
+def government_parent(cfg, host):
+    """First parent domain whose own official website belongs to a government body (or a
+    country's portal), verified on the registry. Fail-closed: errors propagate."""
+    for parent in parent_hosts(host, cfg["wikidata"]["government_parent_depth"]):
+        ents = describe(cfg, by_site(cfg, parent))
+        off = official("https://" + parent, ents)
+        if off and off["government"] and off["match"] == "exact":
+            return {"parent": parent, "entity": off["entity"], "label": off["label"]}
+    return None
+
+
 def verify(cfg, url, name=None, iata=None):
     """Raises sources.SourceError if Wikidata cannot be reached. `url` may carry a path."""
     domain = urls.parse(url)[0]
@@ -236,7 +256,14 @@ def verify(cfg, url, name=None, iata=None):
                 e["sites"].update(redirect_chain(cfg, site))
     tier, qid, label, match, scope, signal = classify(url, ents, cfg["wikidata"].get("travel_description_terms", ()))
     off = official(url, ents)
+    gov_parent = None
+    if not (off and off["government"] and off["match"] == "exact"):
+        gov_parent = government_parent(cfg, domain)
+        if gov_parent:
+            off = {"entity": gov_parent["entity"], "label": gov_parent["label"], "match": "exact",
+                   "scope": None, "government": True}
     return {"domain": registrable(domain), "scope": scope if tier else (off or {}).get("scope"), "signal": signal,
+            "government_via_parent": gov_parent["parent"] if gov_parent else None,
             "tier": tier, "qid": qid or (off or {}).get("entity"),
             "label": label or (off or {}).get("label"), "match": match or (off or {}).get("match"),
             "official_site": bool(off), "government": bool(off and off["government"] and off["match"] == "exact"),

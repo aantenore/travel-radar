@@ -33,7 +33,8 @@ def _parser():
     g = sub.add_parser("geocode"); g.add_argument("name")
     for name in ("climate", "forecast"):
         c = sub.add_parser(name)
-        c.add_argument("--place"); c.add_argument("--lat", type=float); c.add_argument("--lon", type=float)
+        c.add_argument("--place", help="name, or 'Name, Region[, Country]'"); c.add_argument("--lat", type=float); c.add_argument("--lon", type=float)
+        c.add_argument("--admin1", help="region/province to disambiguate"); c.add_argument("--country", help="country name or code")
         if name == "climate":
             c.add_argument("--months", help="e.g. 4,5")
 
@@ -106,6 +107,8 @@ def _parser():
     r.add_argument("--excerpt", help="verbatim page text that shows the price")
     r.add_argument("--extractor", help="who read the page: fare-reader or main")
     r.add_argument("--excerpt-price", type=float, help="price as shown on the page, if not in EUR")
+    r.add_argument("--provisional", action="store_true",
+                   help="the fare looks unpublished/placeholder (e.g. full fare far ahead): kept, but ignored by advise and alerts")
     ck = wsub.add_parser("checked")
     ck.add_argument("--watch", required=True)
     ck.add_argument("--status", required=True, choices=["ok", "no_data", "error"]); ck.add_argument("--note")
@@ -159,6 +162,8 @@ def main(argv=None):
         if a.cmd == "init":
             return _out(init)
         return _run(a, cfg)
+    except sources.AmbiguousPlace as e:
+        _out({"error": "ambiguous place", "details": str(e), "candidates": e.candidates}); return 6
     except sources.SourceError as e:
         _out({"error": str(e), "fix": "source unavailable: retry later or record the item as unknown"}); return 2
     except schema.ValidationError as e:
@@ -173,9 +178,9 @@ def _run(a, cfg):
     if a.cmd == "geocode":
         return _out(sources.geocode(cfg, a.name))
     if a.cmd == "climate":
-        return _out(sources.climate(cfg, a.place, a.lat, a.lon, _months(a.months)))
+        return _out(sources.climate(cfg, a.place, a.lat, a.lon, _months(a.months), admin1=a.admin1, country=a.country))
     if a.cmd == "forecast":
-        return _out(sources.forecast(cfg, a.place, a.lat, a.lon))
+        return _out(sources.forecast(cfg, a.place, a.lat, a.lon, admin1=a.admin1, country=a.country))
     if a.cmd == "holidays":
         return _out(sources.holidays(cfg, a.country, a.year, a.start, a.end))
     if a.cmd == "score":
@@ -263,11 +268,15 @@ def _run(a, cfg):
         if a.xcmd == "list":
             return _out(mod.load(cfg, a.trip))
         if a.xcmd == "check":
+            if a.cmd == "requirements":
+                return _out(mod.check(cfg, a.trip, profile=config.profile(cfg)))
             return _out(mod.check(cfg, a.trip))
         data = config.load_yaml(Path(a.file).expanduser())
         items = data.get("items", []) if isinstance(data, dict) else data
         if a.cmd == "experience":
             return _out(mod.add(cfg, con, a.trip, items, set(schema.PROFILE_FIELDS)))
+        if a.cmd == "requirements":
+            return _out(mod.add(cfg, con, a.trip, items, profile=config.profile(cfg)))
         return _out(mod.add(cfg, con, a.trip, items))
     if a.cmd == "trip":
         if a.tcmd == "fact":
@@ -327,10 +336,13 @@ def _run(a, cfg):
             tier = reliability.check_flight_observation(cfg, w, a.url, a.depart, a.return_date,
                                                         shown, a.excerpt, a.extractor, source_tier=v["tier"])
             verified_by = v["verified_by"]
+        status = reliability.fare_status(cfg, w, a.depart, a.provisional) if a.depart else None
         store.add_observation(con, a.watch, a.price_eur, a.source, a.url, a.depart, a.return_date,
                               a.carrier, a.stops, a.note, tier=tier, excerpt=a.excerpt, extractor=a.extractor,
-                              verified_by=verified_by)
-        return _out({"recorded": a.watch, "price_eur": a.price_eur, "tier": tier, "verified_by": verified_by})
+                              verified_by=verified_by, fare_status=status)
+        return _out({"recorded": a.watch, "price_eur": a.price_eur, "tier": tier, "verified_by": verified_by,
+                     "fare_status": status, **({"note": "provisional fare: kept for reference, ignored by advise and alerts"}
+                                               if status == "provisional" else {})})
     if a.wcmd == "checked":
         _watch(cfg, a.watch)
         store.add_check(con, a.watch, a.status, a.note)

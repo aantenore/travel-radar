@@ -52,8 +52,11 @@ def ics(cfg, trip, now=None):
         lines += _event(f"{tid}-deadline-{n}@travel-radar", day, day + timedelta(days=1),
                         f"Deadline: {d['title']}", f"Source: {d.get('source', '')}", stamp)
     from . import experiences, requirements
-    for d in requirements.check(cfg, tid)["deadlines"]:
-        if d["option"] in ("chosen", trip.get("chosen_option")):
+    for item in requirements.load(cfg, tid):
+        dl = item.get("deadlines") or {}
+        d = dl.get(trip.get("chosen_option")) or dl.get("chosen")
+        if d:
+            d = {"id": item["id"], "action": item["action"], "status": item["status"], "deadline": d}
             day = trips._as_date(d["deadline"])
             lines += _event(f"{tid}-req-{d['id']}@travel-radar", day, day + timedelta(days=1),
                             f"Deadline: {d['action']}", f"Requirement {d['id']} ({d['status']})", stamp)

@@ -94,6 +94,8 @@ def watch(w):
         e.append(f"watch {w.get('id')}: not confirmed by the user; create it with `tw watch add <file> --confirmed-by-user \"<user's yes>\"`")
     if w.get("haul") is not None and w["haul"] not in ("long", "short"):
         e.append(f"watch {w.get('id')}: haul must be long or short")
+    if w.get("market") is not None and w["market"] not in ("international", "domestic"):
+        e.append(f"watch {w.get('id')}: market must be international or domestic")
     for k in ("peak", "one_way"):
         if w.get(k) is not None and not isinstance(w[k], bool):
             e.append(f"watch {w.get('id')}: {k} must be true or false")

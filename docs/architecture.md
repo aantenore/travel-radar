@@ -174,6 +174,7 @@ Date: 2026-11-18 · Status: accepted
   - Geopolitical warnings need two independent outlets and blockers an official source.
   - Advisory levels are mapped from the source's own scale.
   - Everything carries a TTL per category.
+- **0.9.0**: government detection also accepts a country item's own official website (e.g. gov.uk) and subdomains of a verified government parent domain (e.g. a consulate under gov.cn), at most `government_parent_depth` levels up, fail-closed.
 - **Consequences**: no country rules in code; some official sites are not in the registry (for example a foreign ministry's travel-advice site on its own domain) and need `tw sources confirm --government`. International health bodies may not be classified as government on the registry and then count as non-official.
 
 ## 8. Behaviour scenarios (manual check or model grader)

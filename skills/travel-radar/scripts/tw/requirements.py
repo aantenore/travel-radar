@@ -25,7 +25,11 @@ def load(cfg, trip_id):
     return (yaml.safe_load(p.read_text()) or {}).get("items", []) if p.exists() else []
 
 
-def _normalize(cfg, con, trip, it, now):
+def _nationality(profile):
+    return ((profile or {}).get("traveller") or {}).get("nationality")
+
+
+def _normalize(cfg, con, trip, it, now, profile=None):
     c = cfg["requirements"]
     where = f"requirement {it.get('id')}"
     e = []
@@ -52,6 +56,14 @@ def _normalize(cfg, con, trip, it, now):
     out.setdefault("applies_to", {})
     out["sources"] = evidence.annotate(cfg, con, it.get("sources"), where, now)
     out["flags"] = []
+    nat = _nationality(profile)
+    dependent = it["category"] in c["nationality_dependent"]
+    out["for_nationality"] = nat if dependent else None
+    if dependent and not nat:
+        out["assumed_nationality"] = True
+        if out["status"] != "unknown":
+            out["status"] = "unknown"
+            out["flags"].append("traveller nationality unknown: this depends on it; ask it (tw profile gaps --step requirements)")
     if out["status"] == "required" and not any(s["official"] for s in out["sources"]):
         out["status"] = "unknown"
         out["flags"].append("verify: stated as required only by non-official sources; check an official source")
@@ -65,9 +77,9 @@ def _normalize(cfg, con, trip, it, now):
     return out
 
 
-def add(cfg, con, trip_id, items, now=None):
+def add(cfg, con, trip_id, items, now=None, profile=None):
     trip = trips.load(cfg, trip_id)
-    norm = [_normalize(cfg, con, trip, it, now) for it in items]
+    norm = [_normalize(cfg, con, trip, it, now, profile) for it in items]
     by_id = {x["id"]: x for x in load(cfg, trip_id)}
     by_id.update({x["id"]: x for x in norm})
     _path(cfg, trip_id).write_text(yaml.safe_dump({"items": list(by_id.values())}, sort_keys=False, allow_unicode=True))
@@ -75,15 +87,25 @@ def add(cfg, con, trip_id, items, now=None):
             "downgraded": [{"id": x["id"], "flags": x["flags"]} for x in norm if x["flags"]]}
 
 
-def check(cfg, trip_id, today=None):
+def check(cfg, trip_id, today=None, profile=None):
     today = today or datetime.now(timezone.utc).date()
     items = load(cfg, trip_id)
     ttl = cfg["requirements"]["ttl_days"]
-    deadlines, blockers, stale, verify = [], [], [], []
+    nat = _nationality(profile)
+    deadlines, blockers, stale, verify, ask = [], [], [], [], []
     for it in items:
-        for opt, d in (it.get("deadlines") or {}).items():
-            deadlines.append({"id": it["id"], "option": opt, "deadline": d, "action": it["action"],
-                              "status": it["status"], "overdue": evidence.as_date(d) < today})
+        dl = it.get("deadlines") or {}
+        if dl:
+            earliest = min(dl.values())
+            deadlines.append({"id": it["id"], "action": it["action"], "status": it["status"],
+                              "deadline": earliest, "options": sorted(dl),
+                              "by_option": dl if len(set(dl.values())) > 1 else None,
+                              "overdue": evidence.as_date(earliest) < today})
+        if it.get("assumed_nationality") and "traveller.nationality" not in ask:
+            ask.append("traveller.nationality")
+        if it.get("for_nationality") and nat and it["for_nationality"] != nat:
+            stale.append({"id": it["id"], "category": it["category"], "reason": f"researched for nationality "
+                          f"{it['for_nationality']}, profile now says {nat}"})
         if it["status"] == "required" and (it.get("feasible_in_window") is False
                                             or any(evidence.as_date(d) < today for d in (it.get("deadlines") or {}).values())):
             blockers.append({"id": it["id"], "action": it["action"],
@@ -93,7 +115,7 @@ def check(cfg, trip_id, today=None):
         if it.get("flags"):
             verify.append({"id": it["id"], "flags": it["flags"]})
     deadlines.sort(key=lambda d: d["deadline"])
-    return {"blockers": blockers, "deadlines": deadlines, "stale": stale, "verify": verify}
+    return {"blockers": blockers, "deadlines": deadlines, "stale": stale, "verify": verify, "ask": ask}
 
 
 def for_option(items, option_id):

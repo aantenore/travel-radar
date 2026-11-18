@@ -119,7 +119,7 @@ def evaluate(cfg, con, w, now=None):
     (not stored) so the monitoring round re-checks them. `suspect` = implausible drop."""
     now = now or datetime.now(timezone.utc)
     a = cfg["alerts"]
-    obs = store.observations(con, w["id"])
+    obs = store.observations(con, w["id"])           # provisional fares excluded
     if not obs:
         return []
     last = obs[-1]

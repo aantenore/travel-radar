@@ -6,7 +6,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
   id INTEGER PRIMARY KEY, watch_id TEXT NOT NULL, ts TEXT NOT NULL,
   price_eur REAL NOT NULL, depart TEXT, return_date TEXT, carrier TEXT, stops INTEGER,
-  source TEXT NOT NULL, url TEXT NOT NULL, note TEXT, tier INTEGER, excerpt TEXT, extractor TEXT);
+  source TEXT NOT NULL, url TEXT NOT NULL, note TEXT, tier INTEGER, excerpt TEXT, extractor TEXT,
+  verified_by TEXT, fare_status TEXT);
 CREATE TABLE IF NOT EXISTS checks (
   id INTEGER PRIMARY KEY, watch_id TEXT NOT NULL, ts TEXT NOT NULL, status TEXT NOT NULL, note TEXT);
 CREATE TABLE IF NOT EXISTS alerts (
@@ -50,7 +51,8 @@ def connect(db_path):
 def _migrate(con):
     """Add columns introduced after 0.2.0 to existing databases; record the first-use date."""
     cols = {r["name"] for r in con.execute("PRAGMA table_info(observations)")}
-    for name, typ in (("tier", "INTEGER"), ("excerpt", "TEXT"), ("extractor", "TEXT"), ("verified_by", "TEXT")):
+    for name, typ in (("tier", "INTEGER"), ("excerpt", "TEXT"), ("extractor", "TEXT"), ("verified_by", "TEXT"),
+                      ("fare_status", "TEXT")):
         if name not in cols:
             con.execute(f"ALTER TABLE observations ADD COLUMN {name} {typ}")
     con.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('first_use', ?)", (now_iso(),))
@@ -59,14 +61,14 @@ def _migrate(con):
 
 def add_observation(con, watch_id, price_eur, source, url, depart=None, return_date=None,
                     carrier=None, stops=None, note=None, ts=None, tier=None, excerpt=None, extractor=None,
-                    verified_by=None):
+                    verified_by=None, fare_status=None):
     if not url:
         raise ValueError("source url is required")
     con.execute(
         "INSERT INTO observations(watch_id, ts, price_eur, depart, return_date, carrier, stops, source, url, note,"
-        " tier, excerpt, extractor, verified_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " tier, excerpt, extractor, verified_by, fare_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (watch_id, ts or now_iso(), price_eur, depart, return_date, carrier, stops, source, url, note,
-         tier, excerpt, extractor, verified_by))
+         tier, excerpt, extractor, verified_by, fare_status))
     con.commit()
 
 
@@ -81,9 +83,16 @@ def last_check(con, watch_id):
     return r["ts"] if r else None
 
 
-def observations(con, watch_id):
-    return [dict(r) for r in con.execute(
-        "SELECT * FROM observations WHERE watch_id=? ORDER BY ts", (watch_id,))]
+def observations(con, watch_id, include_provisional=False):
+    """Price history. Provisional fares (far-future or flagged) are excluded unless asked for."""
+    q = "SELECT * FROM observations WHERE watch_id=?" + ("" if include_provisional else
+        " AND (fare_status IS NULL OR fare_status != 'provisional')") + " ORDER BY ts"
+    return [dict(r) for r in con.execute(q, (watch_id,))]
+
+
+def provisional_count(con, watch_id):
+    return con.execute("SELECT COUNT(*) FROM observations WHERE watch_id=? AND fare_status='provisional'",
+                       (watch_id,)).fetchone()[0]
 
 
 def last_alert(con, watch_id, kind):
