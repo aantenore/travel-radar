@@ -34,7 +34,16 @@ def verify_source(cfg, con, url, name=None, iata=None, now=None):
     value["government"] = bool(v.get("government"))
     key = scope_key(domain, v.get("scope"))
     knowledge.put(con, "source", key, value, prov, ttl, verified_by, now)
-    return {"domain": domain, "scope": v.get("scope"), "key": key, **value, "verified_by": verified_by, "ttl_days": ttl}
+    registry = {"domain": domain, "scope": v.get("scope"), "key": key, **value, "verified_by": verified_by, "ttl_days": ttl}
+    # Report what `tw watch record` will actually use for this URL: the most specific fresh
+    # verdict (e.g. a path-scoped independent confirmation) wins over the domain-level registry result.
+    eff = resolve(cfg, con, url, now) or {}
+    if eff and (eff.get("key") != key):
+        return {**registry, "tier": eff["tier"], "verified_by": eff["verified_by"],
+                "official_site": eff["official_site"], "government": eff["government"],
+                "key": eff["key"], "effective_from": eff["key"], "registry": {k: registry[k] for k in ("key", "tier", "verified_by", "note")},
+                "note": f"effective verdict from {eff['key']} ({eff['verified_by']}); registry alone: tier {registry['tier']}"}
+    return registry
 
 
 def scope_key(domain, scope):
@@ -95,7 +104,7 @@ def resolve(cfg, con, url, now=None):
     k = k or knowledge.get(con, "source", domain, now)
     if not k or not k["fresh"]:
         return None
-    return {"tier": k["value"]["tier"], "verified_by": k["verified_by"],
+    return {"key": k["key"], "tier": k["value"]["tier"], "verified_by": k["verified_by"],
             "official_site": bool(k["value"].get("official_site")), "government": bool(k["value"].get("government"))}
 
 

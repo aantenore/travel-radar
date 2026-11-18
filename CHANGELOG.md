@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.4 - 2026-11-18
+
+- `tw sources verify` now reports the same verdict `tw watch record` will use: the most specific fresh verdict for the URL (e.g. a path-scoped independent confirmation) wins over the domain-level registry result. The registry outcome is still shown under `registry`, with `effective_from` naming the verdict in use.
+
 ## 0.8.3 - 2026-11-18
 
 Security fixes from review of 0.8.2:

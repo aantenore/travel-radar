@@ -281,6 +281,25 @@ class URLParserTest(unittest.TestCase):
         self.assertEqual(urls.parse("HTTPS://WWW.Google.com/Travel/Flights/?q=1"), ("www.google.com", "/travel/flights"))
 
 
+class VerifyMatchesRecordTest(unittest.TestCase):
+    def test_verify_reports_path_scoped_confirmation(self):
+        con = store.connect(":memory:")
+        ev = [("https://en.wikipedia.org/wiki/Google_Flights", "website google.com/travel/flights"),
+              ("https://thriftytraveler.com/x", "search on google.com/travel/flights")]
+        reliability.confirm_source(CFG, con, "https://www.google.com/travel/flights", 2, ev, now=NOW, scope="path")
+        unresolved = {"Q9366": {"label": "Google Search", "sites": {"https://www.google.com/"}, "airline": False,
+                                "travel": False, "gov": False, "description": "search engine"}}
+        with mock.patch.object(wikidata, "by_site", lambda cfg, d: ["Q9366"]), \
+             mock.patch.object(wikidata, "search", lambda cfg, n: []), \
+             mock.patch.object(wikidata, "describe", lambda cfg, q: {k: dict(v) for k, v in unresolved.items()}):
+            v = reliability.verify_source(CFG, con, "https://www.google.com/travel/flights?q=x", "Google Flights", now=NOW)
+            other = reliability.verify_source(CFG, con, "https://www.google.com/search?q=x", "Google Flights", now=NOW)
+        rec = reliability.resolve(CFG, con, "https://www.google.com/travel/flights?q=x", NOW)
+        self.assertEqual((v["tier"], v["verified_by"]), (rec["tier"], rec["verified_by"]))
+        self.assertEqual((v["tier"], v["effective_from"], v["registry"]["tier"]), (2, "google.com/travel/flights", 0))
+        self.assertEqual(other["tier"], 0)     # the rest of the domain is still unverified
+
+
 class KnowledgeTest(unittest.TestCase):
     def test_put_requires_sources_and_valid_window(self):
         con = store.connect(":memory:")
