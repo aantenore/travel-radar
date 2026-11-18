@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 - 2026-11-18
+
+- Trip lifecycle with validated transitions (`tw trip list|set|park|resume|done`). Parking pauses the trip's watches and stores a snapshot; resuming reports price changes, stale dossier items to re-verify, dossier status changes, new holidays and score changes. `--until` adds a "time to look again" reminder to the monitoring round.
+- Idea inbox (`tw idea add|list|checked|promote|drop`) with season-approaching flags and low-frequency deal checks.
+- Post-trip debrief: `tw trip done` returns configurable debrief topics; answers are learned via `tw profile set`.
+- Exports: `tw export ics` (trip, booking deadlines, re-check reminders) and `tw export brief` (markdown).
+- Commands: `/travel-radar:trips`, `/travel-radar:idea`.
+
 ## 0.1.0 - 2026-11-18
 
 - First release.

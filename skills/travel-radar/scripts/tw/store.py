@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS checks (
 CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY, watch_id TEXT NOT NULL, ts TEXT NOT NULL, kind TEXT NOT NULL,
   price_eur REAL, message TEXT);
+CREATE TABLE IF NOT EXISTS ideas (
+  id INTEGER PRIMARY KEY, text TEXT NOT NULL, best_months TEXT, created TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open', last_checked TEXT, note TEXT, promoted_to TEXT);
 CREATE INDEX IF NOT EXISTS ix_obs ON observations(watch_id, ts);
 CREATE INDEX IF NOT EXISTS ix_chk ON checks(watch_id, ts);
 """

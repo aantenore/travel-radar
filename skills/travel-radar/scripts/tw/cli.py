@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import config, dossier, profile as profile_mod, schema, scoring, sources, store, watches
+from . import config, dossier, export, ideas, profile as profile_mod, schema, scoring, sources, store, trips, watches
 
 
 def _out(obj):
@@ -53,6 +53,28 @@ def _parser():
     ps.add_argument("--value", required=True, help='JSON value, e.g. 30, true, ["FCO"], "solo"')
     ps.add_argument("--evidence", required=True, help="the user's own words that justify it")
     ps.add_argument("--reason")
+
+    tsub = sub.add_parser("trip").add_subparsers(dest="tcmd", required=True)
+    tsub.add_parser("list")
+    ts = tsub.add_parser("set", help="change status (validated transitions)")
+    ts.add_argument("trip"); ts.add_argument("--to", required=True); ts.add_argument("--option")
+    tp = tsub.add_parser("park", help="pause a trip and its watches, keep a snapshot")
+    tp.add_argument("trip"); tp.add_argument("--reason", required=True); tp.add_argument("--until")
+    tr = tsub.add_parser("resume", help="reactivate and show what changed since parking")
+    tr.add_argument("trip")
+    td = tsub.add_parser("done", help="close the trip, stop watches, return debrief topics")
+    td.add_argument("trip")
+
+    isub = sub.add_parser("idea").add_subparsers(dest="icmd", required=True)
+    ia = isub.add_parser("add"); ia.add_argument("text"); ia.add_argument("--best-months", help="e.g. 4,5,10")
+    il = isub.add_parser("list"); il.add_argument("--all", action="store_true")
+    ic = isub.add_parser("checked"); ic.add_argument("id", type=int); ic.add_argument("--note")
+    ip = isub.add_parser("promote"); ip.add_argument("id", type=int); ip.add_argument("--trip", required=True)
+    idr = isub.add_parser("drop"); idr.add_argument("id", type=int)
+
+    esub = sub.add_parser("export").add_subparsers(dest="ecmd", required=True)
+    for name in ("ics", "brief"):
+        e = esub.add_parser(name); e.add_argument("trip"); e.add_argument("--out")
 
     wsub = sub.add_parser("watch").add_subparsers(dest="wcmd", required=True)
     wsub.add_parser("list")
@@ -119,12 +141,44 @@ def _run(a, cfg):
         return _out({"saved": change})
 
     con = store.connect(config.path(cfg, "db"))
+    if a.cmd == "trip":
+        if a.tcmd == "list":
+            return _out(trips.list_all(cfg))
+        if a.tcmd == "set":
+            return _out(trips.set_status(cfg, a.trip, a.to, a.option))
+        if a.tcmd == "park":
+            return _out(trips.park(cfg, con, a.trip, a.reason, a.until))
+        if a.tcmd == "resume":
+            return _out(trips.resume(cfg, con, a.trip))
+        return _out(trips.done(cfg, a.trip))
+    if a.cmd == "idea":
+        if a.icmd == "add":
+            return _out(ideas.add(con, a.text, a.best_months))
+        if a.icmd == "list":
+            return _out(ideas.list_all(con, a.all))
+        if a.icmd == "checked":
+            return _out(ideas.checked(con, a.id, a.note))
+        if a.icmd == "promote":
+            return _out(ideas.promote(cfg, con, a.id, a.trip))
+        return _out(ideas.drop(con, a.id))
+    if a.cmd == "export":
+        trip = trips.load(cfg, a.trip)
+        if a.ecmd == "ics":
+            text, name = export.ics(cfg, trip), f"{a.trip}.ics"
+        else:
+            reps = [watches.report(con, w) for w in watches.load_all(cfg) if w.get("trip") == a.trip]
+            text, name = export.brief(trip, trips.load_dossier(cfg, a.trip), reps), "brief.md"
+        out = Path(a.out).expanduser() if a.out else trips._dir(cfg, a.trip) / name
+        out.write_text(text, encoding="utf-8")
+        return _out({"written": str(out)})
+
     invalid = []
     if a.wcmd == "list":
         return _out({"dir": str(config.path(cfg, "watches_dir")), "watches": watches.load_all(cfg, invalid),
                      "invalid": invalid})
     if a.wcmd == "due":
-        return _out({"watches": watches.due(cfg, con, watches.load_all(cfg, invalid)), "invalid": invalid})
+        return _out({"watches": watches.due(cfg, con, watches.load_all(cfg, invalid)), "invalid": invalid,
+                     "reminders": trips.reminders(cfg), "ideas": ideas.due(cfg, con)})
     if a.wcmd == "record":
         _watch(cfg, a.watch)
         store.add_observation(con, a.watch, a.price_eur, a.source, a.url, a.depart, a.return_date,

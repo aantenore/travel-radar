@@ -41,6 +41,20 @@ research:
   max_fetches_per_watch: 6   # web pages per watch per run
   monitor_every_h: 6         # scheduled task frequency
 
+ideas:
+  check_every_days: 7        # low-frequency deal/season check per idea
+  season_lead_months: 3      # flag when the best month is this close
+
+debrief:                     # topics the agent asks about when a trip is marked done
+  topics:
+    - pace (too fast, right, too slow)
+    - crowds and how touristic it felt
+    - real spend vs budget
+    - places to repeat and places to avoid next time
+
+export:
+  recheck_before_days: [14, 3]   # calendar reminders to re-verify safety and entry rules
+
 scoring:
   default_weights: {cost: 0.30, climate: 0.25, crowds: 0.20, authenticity: 0.15, logistics: 0.10}
   cost_full_score_ratio: 0.8   # <= 80% of budget -> full score

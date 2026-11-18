@@ -62,6 +62,15 @@ def trip(t):
         for k in ("est_cost_eur", "safety_level", "crowd_level"):
             if o.get(k) is not None and not srcs.get(k):
                 e.append(f"{w}.sources.{k} missing: every metric needs at least one link")
+    if t.get("status", "planning") not in ("planning", "chosen", "monitoring", "parked", "done"):
+        e.append(f"trip.status invalid: {t.get('status')!r}")
+    if t.get("chosen_option") is not None and t["chosen_option"] not in seen:
+        e.append(f"trip.chosen_option {t['chosen_option']!r} is not an option id")
+    if t.get("country") is not None and not (isinstance(t["country"], str) and len(t["country"]) == 2):
+        e.append("trip.country must be an ISO 3166-1 alpha-2 code, e.g. CN")
+    for i, d in enumerate(t.get("deadlines") or []):
+        if not _is_date(d.get("date")) or not d.get("title") or not d.get("source"):
+            e.append(f"deadlines[{i}]: needs date, title and source")
     if e:
         raise ValidationError(e)
 

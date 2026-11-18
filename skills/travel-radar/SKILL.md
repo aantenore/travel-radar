@@ -22,6 +22,9 @@ User data lives in the data home (`$TRAVEL_RADAR_HOME`, default `~/.travel-radar
 | Validate a file before use | `tw validate trip|watch <file>` |
 | Profile | `tw profile show` / `tw profile set --key avoid.temp_max_c --value 30 --evidence "<user's words>"` |
 | Watches | `tw watch list | due | record | checked | evaluate | report` |
+| Trip lifecycle | `tw trip list | set <id> --to <status> [--option a] | park <id> --reason "..." [--until DATE] | resume <id> | done <id>` |
+| Idea inbox | `tw idea add "<place or wish>" [--best-months 4,5] | list | checked <id> | promote <id> --trip <trip-id> | drop <id>` |
+| Export | `tw export ics <trip>` / `tw export brief <trip>` (written next to the trip unless `--out`) |
 
 JSON error with `details` → fix the named file or value and run again; never work around validation.
 
@@ -36,7 +39,7 @@ Read the profile (`tw profile show`) at the start of every request. **Never edit
 
 ## 1. Plan a trip (from the prompt)
 
-1. **Frame**: what the user wants to do, when, budget, who with. Open or fixed destination. Create `<home>/trips/<id>/trip.yaml` (short id, e.g. `2027-06-china`).
+1. **Frame**: what the user wants to do, when, budget, who with. Open or fixed destination. Create `<home>/trips/<id>/trip.yaml` (short id, e.g. `2027-06-china`) with `status: planning`. After creation the status changes only through `tw trip` (validated transitions); set `country` (ISO code) when the destination is fixed.
 2. **Candidates**: if the destination is open, research 4-6 candidates online that fit profile and request. Include current deals from the profile's airports (flexible-date searches, deal sites).
 3. **Collect data per option**, all at runtime:
    - climate: `tw climate` on the main places for the relevant months; if departure is < 16 days away also `tw forecast`;
@@ -48,8 +51,8 @@ Read the profile (`tw profile show`) at the start of every request. **Never edit
 4. **Score**: `tw score`. Drop `excluded` options. Use `conflicts` and `missing` for each option.
 5. **Present**: at most 3 options. For each: why it fits the user, period, flights found (price + link + date), rough itinerary with 2-3 concrete local places (with source), risks. If asked whether to book now or wait, answer from price history and sources, never from assumptions.
 6. **Request conflicts with the profile** (`conflicts` not empty) and no explicit override → show the requested option with the conflicts spelled out **plus** 1-2 conforming alternatives (same idea, other period or place). With an explicit override → proceed without unrequested alternatives.
-7. **User picks an option** → full dossier `<home>/trips/<id>/dossier.yaml` covering every item of `tw checklist`; run `tw dossier-check` until `issues` is empty or only declared `unknown` items remain. Report blockers and warnings.
-8. **Monitor**: create watches (section 2) and the scheduled task (section 3).
+7. **User picks an option** → `tw trip set <id> --to chosen --option <option id>`; record booking deadlines you researched (visa lead time, train ticket release dates…) in `deadlines` with source; full dossier `<home>/trips/<id>/dossier.yaml` covering every item of `tw checklist`; run `tw dossier-check` until `issues` is empty or only declared `unknown` items remain. Report blockers and warnings.
+8. **Monitor**: create watches (section 2) with `trip: <id>`, `tw trip set <id> --to monitoring`, and the scheduled task (section 3). Offer `tw export ics` / `tw export brief`.
 9. **Feedback**: the user's reactions to options → section 0.
 
 ### `trip.yaml` schema
@@ -70,6 +73,10 @@ options:
     safety_level: 1
     user_override: false
     sources: {est_cost_eur: [<url>], safety_level: [<url>], crowd_level: [<url>]}
+country: CN                 # optional, ISO 3166-1 alpha-2
+chosen_option: a            # set by `tw trip set --to chosen`
+deadlines:                  # optional, every item needs a source
+  - {date: 2027-04-20, title: "Apply for visa (allow 4 weeks)", source: <url>}
 ```
 
 ### `dossier.yaml` schema
@@ -109,7 +116,7 @@ Before creating it, check with `list_scheduled_tasks` that it does not exist yet
 
 ## 4. Monitoring round
 
-Unattended run: no user to learn from. Forbidden: `tw profile set`, creating or editing trips and watches (except setting `active: false` on watches whose departure has passed), creating other tasks. Allowed only: `tw`, web search and reading, editing the dossier items `safety`, `entry` and `deals`.
+Unattended run: no user to learn from. Forbidden: `tw profile set`, `tw trip` state changes, `tw idea add/promote/drop`, creating or editing trips and watches (except setting `active: false` on watches whose departure has passed), creating other tasks. Allowed only: `tw`, web search and reading, editing the dossier items `safety`, `entry` and `deals`.
 
 1. `tw watch due`. Watches in `invalid` → mention them in the notification, do not fix them. For each watch with `due: true`:
    - flight/deal: search online for the best price in the window (flight search engines, flexible dates), at most `research.max_fetches_per_watch` pages. For each price found: `tw watch record --watch <id> --price-eur <n> --source <site> --url <link> --depart --return --carrier --stops`. Other currency → convert with a current rate from a source and put it in `--note`.
@@ -117,7 +124,18 @@ Unattended run: no user to learn from. Forbidden: `tw profile set`, creating or 
    - weather: `tw forecast`, summarize anomalies against the plan.
    - Always: `tw watch checked --watch <id> --status ok|no_data|error --note "<reason>"`.
 2. `tw watch evaluate` → new alerts. `suspect` alert → reopen the source and check the price; if confirmed record it again, otherwise add a `--note` with the error. Never notify a `suspect` as a deal.
-3. Alerts or safety changes → short notification (PushNotification if available) with price, link and reason. No alerts → finish silently.
+3. `reminders` in `tw watch due` (parked trips whose `--until` date arrived) → include "time to look again" in the notification. `ideas` in `tw watch due` (low-frequency, at most `ideas.check_every_days`): for ideas with `season.approaching`, look for a deal from the profile airports (max 2 pages), then `tw idea checked <id> --note "<what you found, with link>"`; mention approaching seasons or real deals in the notification.
+4. Alerts, safety changes, reminders or idea flags → short notification (PushNotification if available) with price, link and reason. No alerts → finish silently.
+
+## 5. Park, resume, done
+
+- "Let's put this on hold" → `tw trip park <id> --reason "<user's words>" [--until <date if the user gave one>]`. Watches are paused (not deleted) and a snapshot is stored.
+- "Let's pick it up again" → `tw trip resume <id>`. Present the diff it returns: price changes since parking, `reverify_now` items (re-verify them online before giving advice, safety and entry first), dossier status changes, new holidays in the window, score changes.
+- Trip finished → `tw trip done <id>`, then a short debrief: ask the `debrief_topics` it returns as 3-4 quick questions in one message. Save each clear answer with `tw profile set` quoting the user's words as evidence.
+
+## 6. Ideas
+
+"One day I'd like to see Patagonia" → `tw idea add "Patagonia" --best-months 11,12,1,2` (best months from a source; omit if unknown). When the user wants to plan it: `tw idea promote <id> --trip <trip-id>`, then section 1. Ideas the user loses interest in → `tw idea drop <id>`.
 
 ## Rules
 

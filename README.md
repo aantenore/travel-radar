@@ -69,14 +69,31 @@ You can also start with an explicit command: `/travel-radar:trip 2-3 weeks in Ch
   - drop versus the median;
   - change in safety or entry rules.
 
+## Park, resume, ideas, export
+
+- **Park a trip.** "Let's put the China trip on hold until March" pauses the trip and its watches, nothing is deleted, and stores a snapshot. With a date, the monitoring round reminds you when it's time to look again.
+- **Resume it.** You get a "what changed since you parked it":
+  - price changes;
+  - dossier items now too old, which are re-verified before any advice, safety and entry rules first;
+  - safety or visa status changes;
+  - new holidays in your window;
+  - score changes.
+- **Done and debrief.** When a trip is over, it asks 3-4 quick questions (pace, crowds, real spend vs budget, places to repeat or avoid) and learns from your answers.
+- **Idea inbox.** "One day I'd like to see Patagonia" saves the idea with its best months. Ideas are checked at low frequency and flagged when their season is approaching or a deal shows up from your airports. When you're ready, an idea becomes a trip.
+- **Export.**
+  - `.ics` calendar with the trip, booking deadlines (e.g. visa lead time, with source) and reminders to re-check safety and entry rules before departure;
+  - markdown trip brief with dates, places, best flights, dossier and sources.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `/travel-radar:trip <request>` | Plan a trip from a free-form request |
-| `/travel-radar:status [watch]` | Watches, best prices with links, alerts, stale dossier items |
+| `/travel-radar:status [watch]` | Trips by status, ideas, watches, best prices with links, alerts, stale dossier items |
 | `/travel-radar:monitor [setup]` | Run one monitoring round now, or set up the scheduled task |
 | `/travel-radar:profile [preference]` | Show what it learned about you, or tell it a preference |
+| `/travel-radar:trips park|resume|done <trip>` | Park a trip for later, resume it with a "what changed" report, or close it with a debrief |
+| `/travel-radar:idea <place or wish>` | Save an idea for some day; list ideas with no argument |
 
 ## Permissions
 
@@ -108,8 +125,10 @@ Everything you own lives outside the plugin, so updates never touch it:
 ├── settings.yaml           # optional overrides of the defaults
 ├── trips/<id>/trip.yaml    # options with metrics and sources
 ├── trips/<id>/dossier.yaml # destination dossier
+├── trips/<id>/<id>.ics     # calendar export
+├── trips/<id>/brief.md     # trip brief export
 ├── watches/<id>.yaml       # monitored flights / safety / weather
-└── data/radar.sqlite       # price history, checks, alerts (+ HTTP cache)
+└── data/radar.sqlite       # price history, checks, alerts, ideas (+ HTTP cache)
 ```
 
 ## Configuration
