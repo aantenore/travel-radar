@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 - 2026-11-18
+
+- Verified prices: source tiers in config (tier 1 airline sites, tier 2 meta-search with exact dates); `tw watch record` rejects other sources and observations without exact dates inside the watch window; tier stored on each observation (`tw source-tier <url>` to check a URL). Existing databases are migrated automatically.
+- Alert confirmation: `below_budget`, `new_low` and `drop` alerts need a second confirming observation within `confirm_window_h`; otherwise they are returned as `pending_confirmation` and re-checked. `suspect` unchanged.
+- `tw advise --watch <id>`: deterministic BUY_NOW / WAIT / WATCH_CLOSELY with confidence, recheck date and reasons, based on booking windows by haul and season, price percentile, trend, volatility, budget and history size. One reminder task per watch when waiting.
+- Monitoring round: exits when nothing is due; page reading delegated to a cheaper-model subagent, verification kept on the main model.
+- Watch fields `haul`, `peak`, `one_way`. Command `/travel-radar:advise`. Skill guidance on how to buy.
+
 ## 0.2.0 - 2026-11-18
 
 - Trip lifecycle with validated transitions (`tw trip list|set|park|resume|done`). Parking pauses the trip's watches and stores a snapshot; resuming reports price changes, stale dossier items to re-verify, dossier status changes, new holidays and score changes. `--until` adds a "time to look again" reminder to the monitoring round.

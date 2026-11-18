@@ -2,7 +2,7 @@
 import statistics
 from datetime import date, datetime, timedelta, timezone
 
-from . import config, schema, store
+from . import config, reliability, schema, store
 
 
 def load_all(cfg, errors=None):
@@ -61,38 +61,70 @@ def _cooldown_ok(cfg, con, wid, kind, now):
     return last is None or now - datetime.fromisoformat(last) >= timedelta(hours=cfg["alerts"]["cooldown_h"])
 
 
+def _partners(cfg, obs, last):
+    """Earlier observations that confirm `last`: same fare re-read on the same site, or another
+    tier 1/2 site, within the confirmation window and tolerance."""
+    r = cfg["reliability"]
+    t_last = datetime.fromisoformat(last["ts"])
+    window = timedelta(hours=r["confirm_window_h"])
+    out = []
+    for o in obs:
+        if abs(t_last - datetime.fromisoformat(o["ts"])) > window:
+            continue
+        diff = 100 * abs(o["price_eur"] - last["price_eur"]) / last["price_eur"]
+        same = reliability.host(o["url"]) == reliability.host(last["url"])
+        if same and diff <= r["same_source_tolerance_pct"]:
+            out.append(o)
+        elif not same and o.get("tier") in (1, 2) and diff <= r["cross_source_tolerance_pct"]:
+            out.append(o)
+    return out
+
+
 def evaluate(cfg, con, w, now=None):
-    """Compare the latest observation with history and budget. Store and return new alerts."""
+    """Compare the latest observation with history and budget.
+
+    Price alerts (below_budget, new_low, drop) are `confirmed` and stored only when a second
+    observation confirms the fare; otherwise they are returned as `pending_confirmation`
+    (not stored) so the monitoring round re-checks them. `suspect` = implausible drop."""
     now = now or datetime.now(timezone.utc)
     a = cfg["alerts"]
     obs = store.observations(con, w["id"])
     if not obs:
         return []
-    last, prev = obs[-1], obs[:-1]
+    last = obs[-1]
+    partners = _partners(cfg, obs[:-1], last)
+    hist = [o for o in obs[:-1] if o not in partners]
     price = last["price_eur"]
     found = []
     # Implausible price vs history: likely a misread, so no "deal" alerts.
-    if len(prev) >= a["min_history"]:
-        med = statistics.median(o["price_eur"] for o in prev)
+    if len(hist) >= a["min_history"]:
+        med = statistics.median(o["price_eur"] for o in hist)
         if 100 * (med - price) / med >= a["suspect_drop_pct"]:
             found = [("suspect", f"{price}€ vs median {med:.0f}€: re-verify on the source before reporting")]
     suspect = bool(found)
     budget = w.get("budget_eur")
     if not suspect and a.get("below_budget") and budget and price <= budget:
         found.append(("below_budget", f"{price}€ under budget {budget}€"))
-    if not suspect and a.get("new_low") and prev and price < min(o["price_eur"] for o in prev):
-        found.append(("new_low", f"new low {price}€ (previous {min(o['price_eur'] for o in prev)}€)"))
-    if not suspect and len(prev) >= a["min_history"]:
-        med = statistics.median(o["price_eur"] for o in prev)
+    if not suspect and a.get("new_low") and hist and price < min(o["price_eur"] for o in hist):
+        found.append(("new_low", f"new low {price}€ (previous {min(o['price_eur'] for o in hist)}€)"))
+    if not suspect and len(hist) >= a["min_history"]:
+        med = statistics.median(o["price_eur"] for o in hist)
         drop = 100 * (med - price) / med
         if drop >= a["drop_pct"]:
             found.append(("drop", f"{price}€, -{drop:.0f}% vs median {med:.0f}€"))
     new = []
     for kind, msg in found:
-        if _cooldown_ok(cfg, con, w["id"], kind, now):
-            store.add_alert(con, w["id"], kind, price, msg, ts=now.replace(microsecond=0).isoformat())
-            new.append({"watch": w["id"], "kind": kind, "price_eur": price, "message": msg,
-                        "url": last["url"], "source": last["source"]})
+        base = {"watch": w["id"], "kind": kind, "price_eur": price, "message": msg,
+                "url": last["url"], "source": last["source"], "tier": last.get("tier")}
+        if not _cooldown_ok(cfg, con, w["id"], kind, now):
+            continue
+        if kind != "suspect" and not partners:
+            new.append({**base, "status": "pending_confirmation",
+                        "next": "re-read the same fare on the same site, or find it on another tier 1/2 site, then record and evaluate again"})
+            continue
+        store.add_alert(con, w["id"], kind, price, msg, ts=now.replace(microsecond=0).isoformat())
+        status = "needs_reverify" if kind == "suspect" else "confirmed"
+        new.append({**base, "status": status, "confirmed_by": [o["url"] for o in partners]})
     return new
 
 

@@ -59,16 +59,29 @@ class WatchTest(unittest.TestCase):
         store.add_check(self.con, "w1", "ok", ts=(now - timedelta(hours=2)).isoformat())
         self.assertFalse(watches.due(CFG, self.con, [self.w], now)[0]["due"])
 
-    def test_alerts_and_cooldown(self):
+    def test_alerts_need_confirmation_and_respect_cooldown(self):
         now = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
+        x, y = "https://www.kayak.it/flights/FCO-PEK", "https://www.skyscanner.it/x"
+
+        def obs(p, url, h):
+            store.add_observation(self.con, "w1", p, "s", url, ts=(now + timedelta(hours=h)).isoformat(), tier=2)
+
         for i, p in enumerate([700, 690, 710, 600]):
-            store.add_observation(self.con, "w1", p, "s", "http://x", ts=(now - timedelta(hours=4 - i)).isoformat())
-        kinds = {a["kind"] for a in watches.evaluate(CFG, self.con, self.w, now)}
-        self.assertEqual(kinds, {"new_low", "drop"})
+            obs(p, x, i - 4)
+        res = watches.evaluate(CFG, self.con, self.w, now)
+        self.assertEqual({a["kind"] for a in res}, {"new_low", "drop"})
+        self.assertEqual({a["status"] for a in res}, {"pending_confirmation"})
+        obs(600, x, 0)  # same fare re-read on the same site
+        res = watches.evaluate(CFG, self.con, self.w, now)
+        self.assertEqual({a["kind"] for a in res}, {"new_low", "drop"})
+        self.assertEqual({a["status"] for a in res}, {"confirmed"})
         self.assertEqual(watches.evaluate(CFG, self.con, self.w, now + timedelta(hours=1)), [])
-        store.add_observation(self.con, "w1", 450, "s", "http://x", ts=(now + timedelta(hours=2)).isoformat())
-        kinds = {a["kind"] for a in watches.evaluate(CFG, self.con, self.w, now + timedelta(hours=2))}
-        self.assertEqual(kinds, {"below_budget"})
+        obs(450, x, 2)
+        res = watches.evaluate(CFG, self.con, self.w, now + timedelta(hours=2))
+        self.assertEqual([(a["kind"], a["status"]) for a in res], [("below_budget", "pending_confirmation")])
+        obs(460, y, 3)  # another tier 2 site within 5%
+        res = watches.evaluate(CFG, self.con, self.w, now + timedelta(hours=3))
+        self.assertEqual([(a["kind"], a["status"]) for a in res], [("below_budget", "confirmed")])
 
     def test_observation_requires_url(self):
         with self.assertRaises(ValueError):

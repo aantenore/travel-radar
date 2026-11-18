@@ -26,6 +26,12 @@ Move to **Standard** if bookings or payments, a paid API, multiple users or mess
 | Dossier completeness and freshness | code | `tw/dossier.py` + checklist in config |
 | Check cadence, history, thresholds, alert cooldown, suspect prices | code | `tw/watches.py`, `tw/store.py` |
 | Write the profile, with mandatory evidence | code, on the model's proposal | `tw profile set` |
+| Which sites may produce a price (tier 1 airline, tier 2 meta-search) | code, patterns in config | `tw/reliability.py` |
+| Confirm a price alert with a second observation | code | `watches.evaluate` |
+| Buy/wait verdict, confidence, recheck date | code | `tw/advise.py` |
+| Context on the verdict (sales, surcharges, route changes, geopolitics), stated agreement or disagreement | model | skill §7 |
+| Read prices from pages during unattended rounds | subagent on a cheaper model | skill §4 |
+| Verify alerts and suspects, write the final message | main model | skill §4, §7 |
 | Pick an option, override, book, pay | user | outside the system |
 
 ## 3. Pattern
@@ -48,6 +54,11 @@ Move to **Standard** if bookings or payments, a paid API, multiple users or mess
 | Dossier checklist in config | Same coverage for every country, no rules hard-coded | — |
 | `suspect` alert | Prices read by the model can be wrong (confabulation or misread page) | Independent second reader if more than 10% of confirmed suspects are false |
 | Single scheduled task | The timer the user asked for; real cadence is decided in code | Cloud routine if monitoring must run with the computer off |
+| Source tiers + exact dates on record | "Verified online from a reliable site" is a requirement; route pages and averages are not prices | — |
+| Two-observation confirmation | A single misread page must not trigger a notification | — |
+| `tw advise` | Buy/wait must be repeatable and explainable, not a model mood | Calibrate thresholds after one season of real observations |
+| Extraction subagent on sonnet | Unattended rounds run several times a day; page reading is the token-heavy part | haiku if it matches sonnet on ≥ 98% of 30 labelled pages (see ADR-3) |
+| One-time advise reminder per watch | "I'll message you" without duplicate tasks | — |
 | Price research via web | No cost, no account | API adapter (e.g. SerpApi, Duffel) if over 30% of checks end in `no_data`/`error` for 2 weeks |
 
 ## 5. Controls
@@ -93,6 +104,20 @@ Date: 2026-11-18 · Status: accepted
 - **Consequences**: no infrastructure. Limits: desktop scheduled tasks do not run with the computer off; each round costs tokens. The CLI works without a model until the web must be read. Cheap to reverse: the CLI is runtime-independent.
 - **Review trigger**: over 20% of checks missed because the computer was off, or monthly cost of rounds above the user's threshold.
 
+### ADR-3. Model tiering for the monitoring round
+Date: 2026-11-18 · Status: accepted
+- **Context**: monitoring rounds run unattended several times a day; reading flight pages dominates token cost. Errors in extraction are caught downstream: the CLI rejects non-tier sources and missing dates, and alerts need a second confirming observation.
+- **Options**: everything on the main model (simplest, highest cost per round); extraction on haiku (cheapest, unproven on dense fare pages); extraction on sonnet, verification and the final message on the main model (chosen).
+- **Decision**: rounds exit before any model work when `tw watch due` reports `nothing_due`. Per-watch page reading runs in a sonnet subagent returning JSON only; recording, alert verification, suspect checks and the buy/wait message stay on the main model.
+- **Consequences**: lower cost per round with the risky judgement kept on the stronger model. Reversal is a one-line change in the skill.
+- **Eval trigger**: keep 30 saved fare pages with hand-labelled prices. Move extraction to haiku only if it matches the labels on ≥ 98% of pages with zero wrong dates. Move back up if `pending_confirmation` alerts that never confirm exceed 20% over two weeks.
+
+### ADR-4. Only tier 1/2 sources produce prices; alerts need confirmation
+Date: 2026-11-18 · Status: accepted
+- **Context**: the user requires prices verified online from reliable sites; web pages often show undated "from X€" teasers.
+- **Options**: trust the model's reading of any page (simple, silent errors); paid fare API (reliable, cost and account); domain tiers in config + exact dates + second observation (chosen).
+- **Consequences**: fewer but trustworthy observations; some rounds end in `no_data`. Users extend tiers in `settings.yaml` without code changes. Revisit with a paid API per ADR-1's trigger.
+
 ## 8. Behaviour scenarios (manual check or model grader)
 
 | # | Input | Expected |
@@ -105,3 +130,8 @@ Date: 2026-11-18 · Status: accepted
 | 6 | Country with a "do not travel" advisory | Option excluded, reason explained |
 | 7 | Price read as 90€ with history around 700€ | `suspect` alert, re-verification, no deal notification |
 | 8 | Flight site that requires login | Source skipped, `no_data` check with note, no invented price |
+| 9 | Price from a blog "Rome-Beijing from 380€" | `tw watch record` rejects it; used as context only |
+| 10 | One meta-search read below budget, not re-read | `pending_confirmation`, no notification; re-checked next round |
+| 11 | `tw advise` says WAIT with 3 verified prices | Verdict shown with low confidence and "history too short"; one reminder task on the recheck date |
+| 12 | Model finds an airline sale ending tomorrow, advisor says WAIT | Both shown: verdict + explicit disagreement with source; user decides |
+| 13 | No watch due | Round stops after `tw watch due`, no web access, no message |

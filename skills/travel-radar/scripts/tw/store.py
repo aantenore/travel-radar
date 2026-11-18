@@ -6,7 +6,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
   id INTEGER PRIMARY KEY, watch_id TEXT NOT NULL, ts TEXT NOT NULL,
   price_eur REAL NOT NULL, depart TEXT, return_date TEXT, carrier TEXT, stops INTEGER,
-  source TEXT NOT NULL, url TEXT NOT NULL, note TEXT);
+  source TEXT NOT NULL, url TEXT NOT NULL, note TEXT, tier INTEGER);
 CREATE TABLE IF NOT EXISTS checks (
   id INTEGER PRIMARY KEY, watch_id TEXT NOT NULL, ts TEXT NOT NULL, status TEXT NOT NULL, note TEXT);
 CREATE TABLE IF NOT EXISTS alerts (
@@ -30,17 +30,26 @@ def connect(db_path):
     con = sqlite3.connect(str(db_path))
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    _migrate(con)
     return con
 
 
+def _migrate(con):
+    """Add columns introduced after 0.2.0 to existing databases."""
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(observations)")}
+    if "tier" not in cols:
+        con.execute("ALTER TABLE observations ADD COLUMN tier INTEGER")
+        con.commit()
+
+
 def add_observation(con, watch_id, price_eur, source, url, depart=None, return_date=None,
-                    carrier=None, stops=None, note=None, ts=None):
+                    carrier=None, stops=None, note=None, ts=None, tier=None):
     if not url:
         raise ValueError("source url is required")
     con.execute(
-        "INSERT INTO observations(watch_id, ts, price_eur, depart, return_date, carrier, stops, source, url, note)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (watch_id, ts or now_iso(), price_eur, depart, return_date, carrier, stops, source, url, note))
+        "INSERT INTO observations(watch_id, ts, price_eur, depart, return_date, carrier, stops, source, url, note, tier)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (watch_id, ts or now_iso(), price_eur, depart, return_date, carrier, stops, source, url, note, tier))
     con.commit()
 
 

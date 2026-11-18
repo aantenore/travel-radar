@@ -89,6 +89,14 @@ def watch(w):
             if not w.get(k):
                 e.append(f"watch {w.get('id')}: {k} missing")
     _nonneg(e, f"watch {w.get('id')}.budget_eur", w.get("budget_eur"))
+    if w.get("haul") is not None and w["haul"] not in ("long", "short"):
+        e.append(f"watch {w.get('id')}: haul must be long or short")
+    for k in ("peak", "one_way"):
+        if w.get(k) is not None and not isinstance(w[k], bool):
+            e.append(f"watch {w.get('id')}: {k} must be true or false")
+    lens = w.get("trip_length_days")
+    if lens is not None and not (isinstance(lens, list) and 1 <= len(lens) <= 2 and all(isinstance(x, int) for x in lens)):
+        e.append(f"watch {w.get('id')}: trip_length_days must be [min, max] days")
     if e:
         raise ValidationError(e)
 

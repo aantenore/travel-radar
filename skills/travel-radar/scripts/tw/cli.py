@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import config, dossier, export, ideas, profile as profile_mod, schema, scoring, sources, store, trips, watches
+from . import advise as advise_mod, config, dossier, export, reliability, ideas, profile as profile_mod, schema, scoring, sources, store, trips, watches
 
 
 def _out(obj):
@@ -89,6 +89,11 @@ def _parser():
     ck.add_argument("--status", required=True, choices=["ok", "no_data", "error"]); ck.add_argument("--note")
     ev = wsub.add_parser("evaluate"); ev.add_argument("--watch")
     rp = wsub.add_parser("report"); rp.add_argument("--watch")
+
+    ad = sub.add_parser("advise", help="buy/wait verdict for a flight watch")
+    ad.add_argument("--watch", required=True)
+    sr = sub.add_parser("source-tier", help="tier of a URL: 1 airline, 2 meta-search, 0 context only")
+    sr.add_argument("url")
     return p
 
 
@@ -140,7 +145,15 @@ def _run(a, cfg):
         profile_mod.save(config.path(cfg, "profile"), prof)
         return _out({"saved": change})
 
+    if a.cmd == "source-tier":
+        return _out({"url": a.url, "tier": reliability.tier(cfg, a.url)})
     con = store.connect(config.path(cfg, "db"))
+    if a.cmd == "advise":
+        w = _watch(cfg, a.watch)
+        res = advise_mod.advise(cfg, con, w)
+        if res["verdict"] in ("WAIT", "WATCH_CLOSELY") and res["recheck_date"]:
+            res["reminder"] = {"task_id": f"travel-radar-advise-{w['id']}", "fire_on": res["recheck_date"]}
+        return _out(res)
     if a.cmd == "trip":
         if a.tcmd == "list":
             return _out(trips.list_all(cfg))
@@ -177,13 +190,18 @@ def _run(a, cfg):
         return _out({"dir": str(config.path(cfg, "watches_dir")), "watches": watches.load_all(cfg, invalid),
                      "invalid": invalid})
     if a.wcmd == "due":
-        return _out({"watches": watches.due(cfg, con, watches.load_all(cfg, invalid)), "invalid": invalid,
-                     "reminders": trips.reminders(cfg), "ideas": ideas.due(cfg, con)})
+        ws = watches.due(cfg, con, watches.load_all(cfg, invalid))
+        rem, ids = trips.reminders(cfg), ideas.due(cfg, con)
+        nothing = not any(x.get("due") for x in ws) and not rem and not ids and not invalid
+        return _out({"nothing_due": nothing, "watches": ws, "invalid": invalid, "reminders": rem, "ideas": ids})
     if a.wcmd == "record":
-        _watch(cfg, a.watch)
+        w = _watch(cfg, a.watch)
+        tier = None
+        if w.get("kind") in ("flight", "deal"):
+            tier = reliability.check_flight_observation(cfg, w, a.url, a.depart, a.return_date)
         store.add_observation(con, a.watch, a.price_eur, a.source, a.url, a.depart, a.return_date,
-                              a.carrier, a.stops, a.note)
-        return _out({"recorded": a.watch, "price_eur": a.price_eur})
+                              a.carrier, a.stops, a.note, tier=tier)
+        return _out({"recorded": a.watch, "price_eur": a.price_eur, "tier": tier})
     if a.wcmd == "checked":
         _watch(cfg, a.watch)
         store.add_check(con, a.watch, a.status, a.note)

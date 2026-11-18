@@ -37,6 +37,69 @@ alerts:
   min_history: 3        # observations required for drop_pct
   suspect_drop_pct: 60  # drops beyond this are likely misreads: re-verify, never notify as a deal
 
+# Which sources may produce a price observation. Regex on host+path, lowercase, without "www.".
+# Add your own with tier1_extra / tier2_extra in settings.yaml (lists are replaced, not merged).
+reliability:
+  tier1:   # airline official sites
+    - '^ita-airways\.com/'
+    - '^airchina\.[a-z.]+/'
+    - '^ceair\.com/'
+    - '^csair\.com/'
+    - '^hainanairlines\.com/'
+    - '^cathaypacific\.com/'
+    - '^lufthansa\.com/'
+    - '^swiss\.com/'
+    - '^austrian\.com/'
+    - '^airfrance\.[a-z.]+/'
+    - '^klm\.[a-z.]+/'
+    - '^britishairways\.com/'
+    - '^iberia\.com/'
+    - '^emirates\.com/'
+    - '^qatarairways\.com/'
+    - '^etihad\.com/'
+    - '^turkishairlines\.com/'
+    - '^finnair\.com/'
+    - '^singaporeair\.com/'
+    - '^ana\.co\.jp/'
+    - '^jal\.co\.jp/'
+    - '^koreanair\.com/'
+    - '^thaiairways\.com/'
+    - '^united\.com/'
+    - '^delta\.com/'
+    - '^aa\.com/'
+    - '^ryanair\.com/'
+    - '^easyjet\.com/'
+    - '^vueling\.com/'
+    - '^wizzair\.com/'
+  tier1_extra: []
+  tier2:   # meta-search, only with exact dates
+    - '^google\.[a-z.]+/travel/flights'
+    - '^skyscanner\.[a-z.]+/'
+    - '^kayak\.[a-z.]+/'
+    - '^momondo\.[a-z.]+/'
+  tier2_extra: []
+  # A price alert fires only when confirmed by a second observation within this window:
+  confirm_window_h: 24
+  same_source_tolerance_pct: 1    # same fare re-read on the same site
+  cross_source_tolerance_pct: 5   # another tier 1/2 site
+
+# Buy/wait advisor (tw advise). Booking windows in days before departure; first match wins.
+advisor:
+  min_verified_obs: 5
+  trend_days: 7
+  rising_trend_pct: 5          # in-window price up this much over trend_days -> buy
+  good_percentile: 25          # price at or below this percentile of own history = good
+  bad_percentile: 75
+  late_days: 21                # inside this, waiting rarely pays
+  wait_recheck_days: 7
+  close_recheck_days: 3
+  high_volatility_cv: 0.15     # coefficient of variation above this lowers confidence
+  windows:
+    - {name: long-haul peak season, haul: long, peak: true, ideal_days: [120, 240]}
+    - {name: long-haul, haul: long, peak: false, ideal_days: [90, 180]}
+    - {name: short-haul peak season, haul: short, peak: true, ideal_days: [60, 120]}
+    - {name: short-haul, haul: short, peak: false, ideal_days: [30, 90]}
+
 research:
   max_fetches_per_watch: 6   # web pages per watch per run
   monitor_every_h: 6         # scheduled task frequency

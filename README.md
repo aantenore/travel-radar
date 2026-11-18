@@ -69,6 +69,24 @@ You can also start with an explicit command: `/travel-radar:trip 2-3 weeks in Ch
   - drop versus the median;
   - change in safety or entry rules.
 
+## Verified prices and "buy now or wait"
+
+- **Only reliable sources count.**
+  - A flight price is recorded only from an airline's own site (tier 1) or a meta-search page queried with exact dates (tier 2: Google Flights, Skyscanner, Kayak, Momondo).
+  - Blogs, "flights from 380€" route pages and historical averages are context, never prices.
+  - The list lives in config; add your own sites with `tier1_extra` / `tier2_extra`.
+- **No alert from a single reading.** A price alert fires only when a second observation confirms it: the same fare re-read on the same site, or the same price (±5%) on another reliable site, within 24 hours. Until then it stays `pending_confirmation` and is re-checked.
+- **Buy or wait.** `/travel-radar:advise` gives `BUY_NOW`, `WAIT` or `WATCH_CLOSELY`, with a confidence and the reasons.
+  - The verdict is computed by code from: days to departure versus the usual booking window (long or short haul, peak or not), where today's price sits in its own verified history, the 7-day trend, volatility and your budget.
+  - With little history it says so instead of pretending.
+  - It may add context found online (airline sales, surcharges, route changes, geopolitics). When it disagrees with the verdict it says so and shows the sources.
+- **"I'll message you."** When the answer is "wait", it schedules one reminder for the recheck date. That day it refreshes prices and tells you the new verdict. There is never more than one reminder per watch.
+- **How to buy.** It suggests:
+  - booking direct with the airline when the price is the same or close;
+  - a changeable fare while entry rules are uncertain;
+  - checking baggage, layovers and self-transfer.
+  You book. It never does.
+
 ## Park, resume, ideas, export
 
 - **Park a trip.** "Let's put the China trip on hold until March" pauses the trip and its watches, nothing is deleted, and stores a snapshot. With a date, the monitoring round reminds you when it's time to look again.
@@ -89,6 +107,7 @@ You can also start with an explicit command: `/travel-radar:trip 2-3 weeks in Ch
 | Command | What it does |
 |---|---|
 | `/travel-radar:trip <request>` | Plan a trip from a free-form request |
+| `/travel-radar:advise [watch]` | Book now or wait: verdict, confidence, reasons, reminder if waiting |
 | `/travel-radar:status [watch]` | Trips by status, ideas, watches, best prices with links, alerts, stale dossier items |
 | `/travel-radar:monitor [setup]` | Run one monitoring round now, or set up the scheduled task |
 | `/travel-radar:profile [preference]` | Show what it learned about you, or tell it a preference |
@@ -153,6 +172,11 @@ scoring:
 - **Every number has a source.** Prices, costs and safety levels carry a link and a date. Missing data is marked `unknown`, never estimated.
 - **Web content is data, not instructions.** Your profile changes only from your own words. Unattended rounds cannot change the profile, trips or watches.
 - **Implausible prices are flagged, not celebrated.** A price far below history raises a `suspect` alert that is re-verified on the source, and is never notified as a deal.
+- **Cost-aware monitoring.**
+  - A round with nothing due stops before any web access.
+  - Page reading runs in a subagent on a cheaper model.
+  - Verifying alerts and the buy/wait message stay on the main model.
+- **Polite browsing.** Each watch reads only a few pages per round (configurable), with no bulk scraping. Sites that block automation or need login are skipped and recorded as `no_data`.
 - **Limits:**
   - Flight prices come from web research, so sites that block automated access or require login are skipped.
   - Desktop scheduled tasks do not run while the computer is off.
