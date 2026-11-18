@@ -78,18 +78,42 @@ class VerifyTest(unittest.TestCase):
         v = self.verify("https://someblog.com/china", name="Some Blog", search={"Some Blog": ["Q999"]})
         self.assertEqual(v["tier"], 0)
 
-    def test_unclassified_on_wikidata_uses_marked_fallback(self):
+    def test_unresolved_stays_unverified(self):
         v = self.verify("https://www.google.com/travel/flights?q=x", name="Google Flights",
                         search={"Google Flights": ["Q5583836"]})
-        self.assertEqual((v["tier"], v["verified_by"], v["ttl_days"]), (2, "fallback", CFG["reliability"]["fallback_ttl_days"]))
+        self.assertEqual((v["tier"], v["verified_by"], v["ttl_days"]), (0, "unverified", CFG["reliability"]["unverified_ttl_days"]))
 
-    def test_unreachable_uses_fallback(self):
+    def test_unreachable_never_falls_back_to_a_list(self):
         def down(cfg, url, params):
             raise sources.SourceError("timeout")
         with mock.patch.object(sources, "_get_json", down):
             v = reliability.verify_source(CFG, self.con, "https://www.ita-airways.com/x", now=NOW)
-        self.assertEqual((v["tier"], v["verified_by"]), (1, "fallback"))
+        self.assertEqual((v["tier"], v["verified_by"]), (0, "unverified"))
         self.assertIn("unreachable", v["note"])
+        with self.assertRaises(schema.ValidationError):     # its prices cannot be recorded
+            reliability.check_flight_observation(
+                CFG, {"depart_window": {"from": "2027-06-01"}, "one_way": True}, "https://www.ita-airways.com/x",
+                "2027-06-02", None, 500, "500 EUR", "main",
+                source_tier=reliability.resolve(CFG, self.con, "https://www.ita-airways.com/x", NOW)["tier"])
+
+    def test_confirm_with_independent_sources(self):
+        url = "https://www.google.com/travel/flights"
+        ev = [("https://en.wikipedia.org/wiki/Google_Flights", "Google Flights ... website google.com/travel/flights"),
+              ("https://www.theverge.com/x", "the flight search engine at google.com/travel/flights")]
+        v = reliability.confirm_source(CFG, self.con, url, 2, ev, now=NOW)
+        self.assertEqual((v["tier"], v["verified_by"]), (2, "independent_sources"))
+        self.assertEqual(reliability.resolve(CFG, self.con, url, NOW)["tier"], 2)
+
+    def test_confirm_rejects_weak_evidence(self):
+        url = "https://www.google.com/travel/flights"
+        bad = [
+            [("https://www.google.com/about", "google.com/travel/flights")],                       # candidate itself, one source
+            [("https://a.com/x", "google.com"), ("https://a.com/y", "google.com")],               # same site twice
+            [("https://a.com/x", "Google Flights"), ("https://b.com/y", "Google Flights")],       # domain not named
+        ]
+        for ev in bad:
+            with self.subTest(ev=ev), self.assertRaises(schema.ValidationError):
+                reliability.confirm_source(CFG, self.con, url, 2, ev, now=NOW)
 
     def test_ttl_expiry_forces_reverification(self):
         self.verify("https://www.kayak.it/flights", name="Kayak", search={"Kayak": ["Q6380402"]})
@@ -97,6 +121,38 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(reliability.resolve(CFG, self.con, url, NOW + timedelta(days=29))["tier"], 2)
         self.assertIsNone(reliability.resolve(CFG, self.con, url, NOW + timedelta(days=31)))
         self.assertEqual(knowledge.stale(self.con, NOW + timedelta(days=31))[0]["key"], "kayak.it")
+
+
+class NoDomainListsGuard(unittest.TestCase):
+    """Guard: shipped config must hold rules and thresholds only, never lists of sites."""
+    ALLOWED = ("sources.", "wikidata.api", "wikidata.sparql", "access.api_adapters.", "http.user_agent")
+    DOMAIN = __import__("re").compile(r"[a-z0-9-]+\\?\.(com|net|org|it|cn|co|io|travel|aero)\b", __import__("re").I)
+
+    def walk(self, node, path=""):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                yield from self.walk(v, f"{path}{k}.")
+        elif isinstance(node, list):
+            for v in node:
+                yield from self.walk(v, path)
+        elif isinstance(node, str):
+            yield path.rstrip("."), node
+
+    def test_defaults_have_no_domain_lists(self):
+        raw = config.load_yaml(config.DEFAULTS_FILE)
+        self.assertFalse({"tier1", "tier2", "tier1_extra", "tier2_extra", "fallback"} & set(raw["reliability"]))
+        offenders = [(p, v) for p, v in self.walk(raw)
+                     if self.DOMAIN.search(v) and not p.startswith(self.ALLOWED)]
+        self.assertEqual(offenders, [])
+
+    def test_user_lists_are_ignored_with_a_warning(self):
+        home = Path(tempfile.mkdtemp())
+        (home / "settings.yaml").write_text("reliability: {tier1_extra: ['^x\\.com/'], confirm_window_h: 12}\n")
+        with mock.patch.dict(os.environ, {"TRAVEL_RADAR_HOME": str(home)}):
+            cfg = config.settings()
+        self.assertNotIn("tier1_extra", cfg["reliability"])
+        self.assertEqual(cfg["reliability"]["confirm_window_h"], 12)
+        self.assertIn("deprecated", cfg["_deprecations"][0])
 
 
 class KnowledgeTest(unittest.TestCase):

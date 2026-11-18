@@ -38,54 +38,13 @@ alerts:
   suspect_drop_pct: 60  # drops beyond this are likely misreads: re-verify, never notify as a deal
 
 # Which sources may produce a price observation: tier 1 airline, tier 2 travel search/booking site.
+# Decided at runtime: the model proposes the entity, code verifies it (tw sources verify / confirm).
 reliability:
-  # Runtime verification (Wikidata) is the authority; verdicts are cached in the knowledge store.
-  verify_ttl_days: 30
-  fallback_ttl_days: 1      # retry verification soon when only the fallback was available
-  # OFFLINE FALLBACK ONLY: used when Wikidata is unreachable or does not classify a site.
-  # Observations relying on it are marked verified_by: fallback. Not the authority.
-  fallback:
-    tier1:   # airline official sites; "([a-z0-9-]+\.)?" allows regional subdomains (it.ceair.com)
-      - '^ita-airways\.com/'
-      - '^airchina\.[a-z.]+/'
-      - '^([a-z0-9-]+\.)?ceair\.com/'
-      - '^([a-z0-9-]+\.)?csair\.com/'
-      - '^([a-z0-9-]+\.)?hainanairlines\.com/'
-      - '^([a-z0-9-]+\.)?hnair\.com/'
-      - '^([a-z0-9-]+\.)?sichuanair\.com/'
-      - '^([a-z0-9-]+\.)?xiamenair\.com/'
-      - '^([a-z0-9-]+\.)?cathaypacific\.com/'
-      - '^lufthansa\.com/'
-      - '^swiss\.com/'
-      - '^austrian\.com/'
-      - '^brusselsairlines\.com/'
-      - '^saudia\.com/'
-      - '^airfrance\.[a-z.]+/'
-      - '^klm\.[a-z.]+/'
-      - '^britishairways\.com/'
-      - '^iberia\.com/'
-      - '^emirates\.com/'
-      - '^qatarairways\.com/'
-      - '^etihad\.com/'
-      - '^turkishairlines\.com/'
-      - '^finnair\.com/'
-      - '^singaporeair\.com/'
-      - '^ana\.co\.jp/'
-      - '^jal\.co\.jp/'
-      - '^koreanair\.com/'
-      - '^thaiairways\.com/'
-      - '^united\.com/'
-      - '^delta\.com/'
-      - '^aa\.com/'
-      - '^ryanair\.com/'
-      - '^easyjet\.com/'
-      - '^vueling\.com/'
-      - '^wizzair\.com/'
-    tier2:   # meta-search, only with exact dates
-      - '^google\.[a-z.]+/travel/flights'
-      - '^skyscanner\.[a-z.]+/'
-      - '^kayak\.[a-z.]+/'
-      - '^momondo\.[a-z.]+/'
+  # Tiers are decided only at runtime and cached in the data home (no domain lists anywhere).
+  verify_ttl_days: 30          # registry (Wikidata) verdicts
+  unverified_ttl_days: 1       # registry unreachable/unresolved: retry soon; prices stay context only
+  independent_ttl_days: 14     # verdicts confirmed by independent sources found at runtime
+  independent_min_sources: 2   # distinct sites, none of them the candidate itself
   # A price alert fires only when independently confirmed within this window: another tier 1/2
   # site, or the same site re-read by an independent extractor (never the same fare-reader twice).
   independent_extractors: [main]
@@ -99,7 +58,7 @@ wikidata:
   sparql: https://query.wikidata.org/sparql
   search_limit: 3
   airline_classes: [Q46970]                          # airline
-  travel_classes: [Q118710708, Q114106, Q1276157]    # online travel agency, metasearch engine, travel website
+  travel_classes: [Q118710708, Q114106, Q1276157]    # classes: online travel agency, metasearch engine, travel website
 
 # How pages are read. Order is learned per source from measured outcomes (tw sources plan).
 access:

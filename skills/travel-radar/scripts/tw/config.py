@@ -31,11 +31,26 @@ def _merge(base, override):
     return out
 
 
+# Keys that used to hold domain lists. Tiers are decided at runtime only, so these are ignored.
+DEPRECATED_RELIABILITY_KEYS = ("tier1", "tier2", "tier1_extra", "tier2_extra", "fallback")
+
+
 def settings():
     """Plugin defaults, deep-merged with the optional user override <home>/settings.yaml."""
     cfg = load_yaml(DEFAULTS_FILE)
     user = home() / "settings.yaml"
-    return _merge(cfg, load_yaml(user)) if user.exists() else cfg
+    if not user.exists():
+        return cfg
+    over = load_yaml(user)
+    rel = over.get("reliability") or {}
+    dropped = [k for k in DEPRECATED_RELIABILITY_KEYS if k in rel]
+    if dropped:
+        over = {**over, "reliability": {k: v for k, v in rel.items() if k not in dropped}}
+    cfg = _merge(cfg, over)
+    if dropped:
+        cfg["_deprecations"] = [f"{user}: reliability.{', reliability.'.join(dropped)} ignored (deprecated): "
+                                "source tiers are verified at runtime; remove these lists"]
+    return cfg
 
 
 def path(cfg, key):

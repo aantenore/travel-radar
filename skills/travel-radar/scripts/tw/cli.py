@@ -101,13 +101,15 @@ def _parser():
     ad.add_argument("--watch", required=True)
     vh = sub.add_parser("verdicts", help="logged buy/wait verdicts for a watch")
     vh.add_argument("--watch", required=True)
-    sr = sub.add_parser("source-tier", help="OFFLINE fallback tier of a URL (the authority is `tw sources verify`)")
-    sr.add_argument("url")
 
     ssub = sub.add_parser("sources", help="runtime source verification and access cascade").add_subparsers(dest="scmd", required=True)
     sv = ssub.add_parser("verify", help="verify a source on Wikidata (cached with TTL)")
     sv.add_argument("--url", required=True); sv.add_argument("--name", help="entity name, e.g. the airline")
     sv.add_argument("--iata", help="airline IATA code, if an airline")
+    sc = ssub.add_parser("confirm", help="verify via independent sources when the registry cannot decide")
+    sc.add_argument("--url", required=True); sc.add_argument("--tier", type=int, required=True)
+    sc.add_argument("--evidence", action="append", required=True, help="URL of an independent site")
+    sc.add_argument("--excerpt", action="append", required=True, help="verbatim text from that site (same order)")
     sp = ssub.add_parser("plan", help="ordered (source, method) attempts for a watch")
     sp.add_argument("--watch", required=True); sp.add_argument("--candidates", required=True, help="comma-separated URLs or domains")
     sp.add_argument("--browser", action="store_true", help="browser tools are available in this session")
@@ -132,6 +134,8 @@ def _parser():
 def main(argv=None):
     a = _parser().parse_args(argv)
     cfg = config.settings()
+    for w in cfg.get("_deprecations", []):
+        sys.stderr.write(f"travel-radar warning: {w}\n")
     try:
         init = config.init(cfg)
         if a.cmd == "init":
@@ -181,8 +185,6 @@ def _run(a, cfg):
         profile_mod.save(config.path(cfg, "profile"), prof)
         return _out({"saved": change})
 
-    if a.cmd == "source-tier":
-        return _out({"url": a.url, "tier": reliability.tier(cfg, a.url)})
     con = store.connect(config.path(cfg, "db"))
     if a.cmd == "advise":
         w = _watch(cfg, a.watch)
@@ -197,6 +199,10 @@ def _run(a, cfg):
     if a.cmd == "sources":
         if a.scmd == "verify":
             return _out(reliability.verify_source(cfg, con, a.url, a.name, a.iata))
+        if a.scmd == "confirm":
+            if len(a.evidence) != len(a.excerpt):
+                raise ValueError("give one --excerpt per --evidence, in the same order")
+            return _out(reliability.confirm_source(cfg, con, a.url, a.tier, list(zip(a.evidence, a.excerpt))))
         if a.scmd == "plan":
             _watch(cfg, a.watch)
             cands, unverified = [], []

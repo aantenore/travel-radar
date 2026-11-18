@@ -2,7 +2,7 @@
 (tier 2), using Wikidata: entity class (P31/P279*), official website (P856), IATA code (P229).
 
 The model proposes candidates (domain, plus entity name and/or IATA code); this module decides.
-Wikidata unreachable -> the caller falls back to the offline list, marked `fallback`.
+Wikidata unreachable or unresolved -> the source stays unverified (see reliability.confirm_source).
 """
 import re
 

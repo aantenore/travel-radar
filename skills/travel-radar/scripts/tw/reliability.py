@@ -1,9 +1,9 @@
 """Source reliability tiers and validation of flight price observations.
 
 Tier 1 = airline official site, tier 2 = travel search/booking site queried with exact dates,
-anything else = context only. The authority is runtime verification (Wikidata, cached with a
-TTL in the knowledge store). The regex lists in config are an offline fallback only, and
-observations relying on them are marked `verified_by: fallback`.
+anything else = context only. Tiers are decided only at runtime: a registry check (Wikidata)
+or, when the registry cannot resolve the entity, independent sources found now. Verdicts are
+cached with provenance and TTL in the data home. There are no domain lists anywhere.
 """
 import re
 from datetime import date
@@ -20,36 +20,59 @@ def _key(url):
     return host + (u.path or "/").lower()
 
 
-def tier(cfg, url):
-    """Offline fallback tier from the config regex lists (never the authority)."""
-    r = cfg["reliability"]
-    fb = r.get("fallback", {})
-    k = _key(url)
-    if any(re.search(p, k) for p in fb.get("tier1", []) + r.get("tier1_extra", [])):
-        return 1
-    if any(re.search(p, k) for p in fb.get("tier2", []) + r.get("tier2_extra", [])):
-        return 2
-    return 0
-
-
 def verify_source(cfg, con, url, name=None, iata=None, now=None):
-    """Verify a source at runtime and cache the verdict with provenance and TTL."""
+    """Registry check (Wikidata). Unreachable or unresolved -> stored as unverified (tier 0,
+    short TTL): its prices are context only until verified by the registry or `confirm_source`."""
     from . import knowledge, sources, wikidata
     domain = wikidata.registrable(host(url))
     r = cfg["reliability"]
     try:
         v = wikidata.verify(cfg, domain, name, iata)
         prov = [f"https://www.wikidata.org/wiki/{v['qid']}"] if v["qid"] else [cfg["wikidata"]["api"]]
-        verified_by, ttl = "wikidata", r["verify_ttl_days"]
-        if v["tier"] == 0 and tier(cfg, url):
-            v.update(tier=tier(cfg, url), note="not classified as airline/travel site on Wikidata; offline fallback list used")
-            verified_by, ttl = "fallback", r["fallback_ttl_days"]
+        if v["tier"]:
+            verified_by, ttl = "wikidata", r["verify_ttl_days"]
+        else:
+            v["note"] = ("registry did not resolve this domain to an airline or travel site; "
+                         "confirm with independent sources (`tw sources confirm`) or treat as context only")
+            verified_by, ttl = "unverified", r["unverified_ttl_days"]
     except sources.SourceError as e:
-        v = {"domain": domain, "tier": tier(cfg, url), "note": f"Wikidata unreachable: {e}"}
-        prov, verified_by, ttl = ["config:reliability.fallback"], "fallback", r["fallback_ttl_days"]
+        v = {"domain": domain, "tier": 0, "note": f"registry unreachable: {e}"}
+        prov, verified_by, ttl = [cfg["wikidata"]["api"]], "unverified", r["unverified_ttl_days"]
     value = {k: v.get(k) for k in ("tier", "qid", "label", "match", "note")}
     knowledge.put(con, "source", domain, value, prov, ttl, verified_by, now)
     return {"domain": domain, **value, "verified_by": verified_by, "ttl_days": ttl}
+
+
+def confirm_source(cfg, con, url, tier, evidence, now=None):
+    """Second runtime check when the registry cannot decide: at least N independent sites found
+    now, none of them the candidate, each with a verbatim excerpt naming the candidate domain
+    as the official airline (tier 1) or travel search/booking site (tier 2)."""
+    from . import knowledge, wikidata
+    domain = wikidata.registrable(host(url))
+    r = cfg["reliability"]
+    errors = []
+    if tier not in (1, 2):
+        errors.append("--tier must be 1 (airline) or 2 (travel search/booking site)")
+    seen = set()
+    for i, (src, excerpt) in enumerate(evidence):
+        d = wikidata.registrable(host(src))
+        if d == domain or wikidata.brand(d) == wikidata.brand(domain):
+            errors.append(f"evidence {i + 1}: {d} is the candidate itself, not independent")
+        elif d in seen:
+            errors.append(f"evidence {i + 1}: {d} repeats a site already given")
+        elif domain not in (excerpt or "").lower():
+            errors.append(f"evidence {i + 1}: excerpt does not mention {domain}")
+        else:
+            seen.add(d)
+    if len(seen) < r["independent_min_sources"]:
+        errors.append(f"need {r['independent_min_sources']} independent sites, got {len(seen)} valid")
+    if errors:
+        raise schema.ValidationError(errors)
+    value = {"tier": tier, "qid": None, "label": None, "match": "independent_sources",
+             "note": "; ".join(f"{src}: {ex[:160]}" for src, ex in evidence)}
+    knowledge.put(con, "source", domain, value, [src for src, _ in evidence], r["independent_ttl_days"],
+                  "independent_sources", now)
+    return {"domain": domain, **value, "verified_by": "independent_sources", "ttl_days": r["independent_ttl_days"]}
 
 
 def resolve(cfg, con, url, now=None):
@@ -110,18 +133,18 @@ def price_in_excerpt(price, excerpt):
 
 
 def check_flight_observation(cfg, watch, url, depart, return_date, price=None, excerpt=None, extractor=None,
-                             source_tier=None):
+                             source_tier=0):
     """Return the source tier, or raise with the reason the observation is not acceptable.
     `price` is the number as shown on the page (local currency if converted).
-    `source_tier` comes from `resolve`; without it the offline fallback list is used."""
-    t = tier(cfg, url) if source_tier is None else source_tier
+    `source_tier` is the runtime verdict from `resolve`; unverified sources are tier 0."""
+    t = source_tier or 0
     errors = []
     if not extractor:
         errors.append("--extractor is required (fare-reader or main)")
     if price is not None and not price_in_excerpt(price, excerpt):
         errors.append(f"price {price} does not appear in --excerpt: copy the verbatim page text that shows it")
     if t == 0:
-        errors.append(f"{host(url)} is not a tier 1 (airline) or tier 2 (meta-search) source: use it as context only")
+        errors.append(f"{host(url)} is not verified as an airline (tier 1) or travel search/booking site (tier 2): context only")
     if not depart:
         errors.append("--depart is required: the price must refer to exact dates")
     one_way = bool(watch.get("one_way"))

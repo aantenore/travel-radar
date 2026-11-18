@@ -26,7 +26,6 @@ class ExcerptGateEval(unittest.TestCase):
                 price = case["expected"]["price"]
                 self.assertTrue(reliability.price_in_excerpt(price, case["excerpt"]))
                 self.assertFalse(reliability.price_in_excerpt(price + 7, case["excerpt"]))
-                self.assertGreaterEqual(reliability.tier(CFG, case["url"]), 1)
 
 
 class AdviseBacktest(unittest.TestCase):

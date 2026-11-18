@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 - 2026-11-18
+
+No shipped lists, not even as fallback.
+- Removed every airline / travel-site domain list from config (`reliability.tier1`, `tier2`, `fallback`). Tiers are decided only at runtime and cached in the data home.
+- Registry unreachable or entity unresolved → source `unverified` (tier 0, 1-day TTL): prices are context only and cannot be recorded. Second runtime check: `tw sources confirm` with at least two independent sites whose text names the domain (14-day TTL, `verified_by: independent_sources`).
+- `reliability.tier1/tier2/tier1_extra/tier2_extra/fallback` in the user's `settings.yaml` are ignored with a deprecation warning.
+- `tw source-tier` removed.
+- Guard test: shipped defaults may not contain domain lists.
+
 ## 0.6.0 - 2026-11-18
 
 Always current: runtime discovery, code verification.

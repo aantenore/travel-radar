@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "travel-radar" / "scripts"))
 os.environ.setdefault("TRAVEL_RADAR_HOME", tempfile.mkdtemp(prefix="travel-radar-test-"))
 
-from tw import advise, config, reliability, schema, store  # noqa: E402
+from tw import advise, config, reliability, schema, store, wikidata  # noqa: E402
 
 CFG = config.settings()
 NOW = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
@@ -16,54 +16,38 @@ W = {"id": "w1", "kind": "flight", "origin": ["FCO"], "destination": ["PEK"], "h
      "depart_window": {"from": "2027-06-01", "to": "2027-06-10"}, "trip_length_days": [14, 21], "budget_eur": 800}
 
 
-class TierTest(unittest.TestCase):
-    def test_tiers(self):
-        self.assertEqual(reliability.tier(CFG, "https://www.ita-airways.com/it_it/booking"), 1)
-        self.assertEqual(reliability.tier(CFG, "https://www.airfrance.it/x"), 1)
-        self.assertEqual(reliability.tier(CFG, "https://www.google.com/travel/flights?q=FCO"), 2)
-        self.assertEqual(reliability.tier(CFG, "https://www.google.it/travel/flights/search"), 2)
-        self.assertEqual(reliability.tier(CFG, "https://www.skyscanner.it/trasporti/voli/rome/bjsa/"), 2)
-        self.assertEqual(reliability.tier(CFG, "https://www.google.com/search?q=flights"), 0)
-        self.assertEqual(reliability.tier(CFG, "https://someblog.com/cheap-flights-china"), 0)
-        self.assertEqual(reliability.tier(CFG, "https://fake-ita-airways.com.evil.net/"), 0)
+class DomainHandlingTest(unittest.TestCase):
+    """Tiers are runtime verdicts; here only the deterministic domain handling is tested."""
 
-    def test_www_is_stripped_and_case_ignored(self):
+    def test_www_case_and_scheme_ignored(self):
         for url in ("https://ita-airways.com/x", "https://www.ita-airways.com/x", "https://WWW.ITA-AIRWAYS.COM/x",
                     "ita-airways.com/x"):
             with self.subTest(url=url):
-                self.assertEqual(reliability.tier(CFG, url), 1)
-        self.assertEqual(reliability.tier(CFG, "https://www.kayak.it/flights"), 2)
-        self.assertEqual(reliability.tier(CFG, "https://kayak.it/flights"), 2)
+                self.assertEqual(wikidata.registrable(reliability.host(url)), "ita-airways.com")
 
-    def test_italy_china_carriers_and_regional_domains(self):
-        for url in ("https://www.brusselsairlines.com/it-it", "https://www.sichuanair.com/en", "https://www.saudia.com/",
-                    "https://www.xiamenair.com/en-us", "https://www.hnair.com/", "https://it.ceair.com/it/",
-                    "https://www.ceair.com/", "https://www.airchina.it/", "https://www.airchina.com.cn/en/",
-                    "https://www.csair.com/it/", "https://www.cathaypacific.com/cx/it_IT.html"):
-            with self.subTest(url=url):
-                self.assertEqual(reliability.tier(CFG, url), 1)
+    def test_regional_subdomains_and_cc_suffixes(self):
+        self.assertEqual(wikidata.registrable("it.ceair.com"), "ceair.com")
+        self.assertEqual(wikidata.registrable("www.airchina.com.cn"), "airchina.com.cn")
+        self.assertEqual(wikidata.match_domain("www.airchina.it", ["http://www.airchina.com/"]), "brand")
 
-    def test_lookalike_domains_rejected(self):
-        for url in ("https://notceair.com/", "https://ceair.com.evil.net/", "https://evil-saudia.com/",
-                    "https://brusselsairlines.com.cheap-flights.io/"):
-            with self.subTest(url=url):
-                self.assertEqual(reliability.tier(CFG, url), 0)
-
-    def test_extra_patterns_from_config(self):
-        cfg = {**CFG, "reliability": {**CFG["reliability"], "tier1_extra": [r"^myairline\.com/"]}}
-        self.assertEqual(reliability.tier(cfg, "https://myairline.com/book"), 1)
+    def test_lookalike_domains_do_not_match(self):
+        for d in ("notceair.com", "ceair.com.evil.net", "evil-saudia.com"):
+            with self.subTest(d=d):
+                self.assertIsNone(wikidata.match_domain(d, ["https://www.ceair.com", "https://www.saudia.com"]))
 
 
 class RecordRulesTest(unittest.TestCase):
-    def check(self, url, dep, ret, watch=W, price=612, excerpt="FCO-PEK 612 € round trip", extractor="fare-reader"):
-        return reliability.check_flight_observation(CFG, watch, url, dep, ret, price, excerpt, extractor)
+    def check(self, url, dep, ret, watch=W, price=612, excerpt="FCO-PEK 612 € round trip", extractor="fare-reader",
+              tier=2):
+        return reliability.check_flight_observation(CFG, watch, url, dep, ret, price, excerpt, extractor, source_tier=tier)
 
     def test_accepts_tiered_source_with_exact_dates(self):
         self.assertEqual(self.check("https://www.kayak.it/flights/FCO-PEK", "2027-06-03", "2027-06-20"), 2)
 
     def test_rejects(self):
+        with self.assertRaises(schema.ValidationError):   # unverified source (tier 0) = context only
+            self.check("https://someblog.com/x", "2027-06-03", "2027-06-20", tier=0)
         cases = [
-            ("https://someblog.com/x", "2027-06-03", "2027-06-20"),      # context-only source
             ("https://www.kayak.it/f", None, "2027-06-20"),             # no depart
             ("https://www.kayak.it/f", "2027-06-03", None),             # no return on round trip
             ("https://www.kayak.it/f", "2027-07-03", "2027-07-20"),     # outside window
@@ -81,7 +65,7 @@ class RecordRulesTest(unittest.TestCase):
                 self.check(url, d, r, **kw)
 
     def test_one_way_needs_no_return(self):
-        self.assertEqual(self.check("https://www.ryanair.com/x", "2027-06-03", None, {**W, "one_way": True}), 1)
+        self.assertEqual(self.check("https://www.ryanair.com/x", "2027-06-03", None, {**W, "one_way": True}, tier=1), 1)
 
     def test_tier_column_migrates_old_db(self):
         path = Path(tempfile.mkdtemp()) / "old.sqlite"

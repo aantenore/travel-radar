@@ -134,13 +134,13 @@ Date: 2026-11-18 · Status: accepted
 - **Options**: trust the model's reading of any page (simple, silent errors); paid fare API (reliable, cost and account); domain tiers in config + exact dates + second observation (chosen).
 - **Consequences**: fewer but trustworthy observations; some rounds end in `no_data`. Users extend tiers in `settings.yaml` without code changes. Revisit with a paid API per ADR-1's trigger.
 
-### ADR-6. Runtime knowledge, verified by code; static lists only as offline fallback
+### ADR-6. Runtime knowledge, verified by code; no shipped lists
 Date: 2026-11-18 · Status: accepted
 - **Context**: any list of "good" sites, airlines on a route, booking windows or entry rules is right only for some destinations and only for a while. The first live round showed it: fixed tier lists missed carriers that really serve Italy–China.
 - **Principle**: code and config hold only rules, verification logic and thresholds. Knowledge is fetched at runtime, stored with provenance (source URL, date) and a TTL, and re-verified when it expires.
 - **Options**: curated lists in config (simple, perishable, destination-biased); trusting the model's judgement of a site (current, unverifiable); model proposes, code verifies against an open knowledge base (chosen: Wikidata class P31/P279*, official website P856, IATA P229).
-- **Consequences**: works for any destination; each verdict has a Wikidata link. Known gaps: entities not classified on Wikidata (e.g. Google Flights is a "website/search engine", Trip.com a "dot-com company") fall back to the offline list and are marked `verified_by: fallback`, with a 1-day TTL so verification is retried. Country variants of a brand (kayak.it vs kayak.com) are accepted as a `brand` match; a look-alike domain on the same label would also pass, accepted because candidates come from search results and every price still needs an excerpt and independent confirmation.
-- **Review trigger**: more than 30% of recorded observations `verified_by: fallback` over two weeks.
+- **Consequences**: works for any destination; each verdict has a Wikidata link. No list of airlines or travel sites ships in code or config, not even as a fallback (0.7.0; a guard test enforces it). When the registry is unreachable or does not resolve an entity (e.g. Google Flights is a "website/search engine", Trip.com a "dot-com company"), the source is `unverified` with a 1-day TTL: prices are context only unless at least two independent sites found at runtime name the domain as official (`tw sources confirm`, 14-day TTL). Country variants of a brand (kayak.it vs kayak.com) are accepted as a `brand` match; a look-alike domain on the same label would also pass, accepted because candidates come from search results and every price still needs an excerpt and independent confirmation.
+- **Review trigger**: more than 30% of candidate sources ending `unverified` over two weeks → add a second registry.
 
 ### ADR-7. Adaptive access cascade with measured health
 Date: 2026-11-18 · Status: accepted
@@ -171,7 +171,7 @@ Date: 2026-11-18 · Status: accepted
 | 18 | "Yes, but only flights" | Only flight watches added with that sentence as evidence; no safety watch |
 | 19 | Resume a parked trip | Preview diff first; watches restart only after a yes |
 | 20 | New route served by an airline missing from every list | Model proposes it with IATA code; `tw sources verify` makes it tier 1 from Wikidata |
-| 21 | Wikidata down | Fallback verdict, `verified_by: fallback`, retried next day |
+| 21 | Wikidata down | Source `unverified`, prices context only, `no_data` with reason unless two independent sites confirm; retried next day |
 | 22 | Site starts returning empty pages to webfetch | Outcomes recorded; `tw sources plan` moves it to browser/API |
 | 23 | Booking window research older than its TTL | `research_needed` from advise; fallback marked heuristic until re-researched |
 | 16 | WAIT verdict during the first 14 days | Logged (`tw verdicts`), not notified; confirmed price alerts and safety/entry changes are still notified |
