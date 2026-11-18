@@ -1,0 +1,53 @@
+# Generic checklist for every destination. Each item is filled from dated online sources.
+# max_age_days: older items are "stale" and must be re-verified.
+items:
+  entry:
+    label: Entry, visa, passport, customs rules
+    required: true
+    max_age_days: 30
+    hint: official government or embassy site + your government's travel advisory
+  safety:
+    label: Safety and geopolitical situation
+    required: true
+    max_age_days: 7
+    hint: official travel advisories, news from the last 30 days (conflicts, protests, strikes, disasters)
+  health:
+    label: Health, vaccinations, insurance
+    required: true
+    max_age_days: 60
+    hint: official travel advisory health section
+  climate:
+    label: Climate for the period and current forecast
+    required: true
+    max_age_days: 30
+    hint: tw climate / tw forecast
+  crowds:
+    label: Public holidays, events, peak season
+    required: true
+    max_age_days: 90
+    hint: tw holidays + local event calendars
+  costs:
+    label: Daily cost (lodging, food, local transport)
+    required: true
+    max_age_days: 60
+    hint: recent sources with explicit prices, never model estimates
+  money_connectivity:
+    label: Payments, cash, SIM/eSIM, blocked apps
+    required: true
+    max_age_days: 90
+    hint: recent traveller forums + official sources
+  transport:
+    label: Domestic transport and required bookings
+    required: true
+    max_age_days: 90
+    hint: official rail/bus sites, recent guides
+  local:
+    label: Local, non-touristic places and experiences
+    required: true
+    max_age_days: 180
+    hint: local forums, communities, blogs in the local language; always cite the source
+  deals:
+    label: Current deals (flights, lodging)
+    required: false
+    max_age_days: 3
+    hint: flexible-date price searches, deal sites

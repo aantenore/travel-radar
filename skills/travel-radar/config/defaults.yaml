@@ -1,0 +1,56 @@
+# travel-radar defaults. Override any key in <data home>/settings.yaml
+# (data home = $TRAVEL_RADAR_HOME or ~/.travel-radar). Relative paths resolve against the data home.
+paths:
+  db: data/radar.sqlite
+  cache_dir: data/cache
+  profile: profile.yaml
+  trips_dir: trips
+  watches_dir: watches
+  dossier_checklist: dossier_checklist.yaml   # falls back to the plugin copy
+
+http:
+  timeout_s: 20
+  user_agent: travel-radar/0.1
+  cache_ttl_s: 21600   # 6h
+
+sources:
+  geocoding: https://geocoding-api.open-meteo.com/v1/search
+  climate_archive: https://archive-api.open-meteo.com/v1/archive
+  forecast: https://api.open-meteo.com/v1/forecast
+  holidays: https://date.nager.at/api/v3/PublicHolidays
+
+climate:
+  years_back: 5
+  rain_day_mm: 1.0
+
+# Checks per day by days left to departure (first matching rule wins).
+cadence:
+  - {min_days: 60, per_day: 1}
+  - {min_days: 14, per_day: 2}
+  - {min_days: 0, per_day: 4}
+
+alerts:
+  drop_pct: 10          # drop vs historical median
+  new_low: true         # new all-time low
+  below_budget: true    # price under the watch budget
+  cooldown_h: 24        # do not repeat the same alert kind within N hours
+  min_history: 3        # observations required for drop_pct
+  suspect_drop_pct: 60  # drops beyond this are likely misreads: re-verify, never notify as a deal
+
+research:
+  max_fetches_per_watch: 6   # web pages per watch per run
+  monitor_every_h: 6         # scheduled task frequency
+
+scoring:
+  default_weights: {cost: 0.30, climate: 0.25, crowds: 0.20, authenticity: 0.15, logistics: 0.10}
+  cost_full_score_ratio: 0.8   # <= 80% of budget -> full score
+  cost_zero_score_ratio: 1.2   # >= 120% of budget -> zero
+  climate_penalty_per_deg: 0.08
+  rain_penalty_per_day: 0.05
+  # Used while the matching profile field is still null.
+  profile_defaults:
+    tmax_min_c: 18
+    tmax_max_c: 28
+    max_rain_days_per_month: 10
+    max_transfer_h: 8
+    max_safety_level: 2

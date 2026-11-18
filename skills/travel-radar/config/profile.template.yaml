@@ -1,0 +1,26 @@
+# Travel preference profile. Updated only through `tw profile set`.
+# null = not known yet (scoring falls back to scoring.profile_defaults).
+travel_style:
+  party: null                # solo | couple | group
+  pace: null                 # slow | medium | fast
+  tourist_must_sees: null    # true = keep the unmissable sights
+  prefer_local: null         # true = local life over tourist circuits
+constraints:
+  origin_airports: []        # e.g. [FCO, MXP]
+  budget_total_eur: null     # flights + lodging + daily spend
+  budget_flight_eur: null
+  typical_length_days: null
+  available_windows: []      # e.g. [{from: 2027-04-01, to: 2027-05-15}]
+  max_safety_level: null     # 1 no advisory ... 4 do not travel
+avoid:
+  crowds: null
+  temp_max_c: null
+  temp_min_c: null
+  max_rain_days_per_month: null
+  max_transfer_h: null
+  other: []
+climate_ideal:
+  tmax_min_c: null
+  tmax_max_c: null
+weights: {}                  # overrides scoring.default_weights
+learned: []                  # {date, rule, previous, reason, evidence}

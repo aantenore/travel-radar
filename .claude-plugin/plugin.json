@@ -1,0 +1,14 @@
+{
+  "name": "travel-radar",
+  "displayName": "Travel Radar",
+  "version": "0.1.0",
+  "description": "Plan trips from a free-form request and keep them under watch: learns your travel profile, researches flights, deals, weather and safety online, scores options against your preferences, and monitors prices and risks on a schedule.",
+  "author": {
+    "name": "Antonio Antenore",
+    "url": "https://github.com/aantenore"
+  },
+  "homepage": "https://github.com/aantenore/travel-radar#readme",
+  "repository": "https://github.com/aantenore/travel-radar",
+  "license": "MIT",
+  "keywords": ["travel", "flights", "itinerary", "price-monitoring", "trip-planning", "skills"]
+}

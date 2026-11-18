@@ -1,0 +1,15 @@
+{
+  "name": "travel-radar-marketplace",
+  "description": "Marketplace for the travel-radar plugin",
+  "owner": {
+    "name": "Antonio Antenore",
+    "url": "https://github.com/aantenore"
+  },
+  "plugins": [
+    {
+      "name": "travel-radar",
+      "source": "./",
+      "description": "Plan trips from a free-form request and monitor flights, deals, weather and safety."
+    }
+  ]
+}
