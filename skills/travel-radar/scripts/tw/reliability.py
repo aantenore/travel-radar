@@ -29,7 +29,7 @@ def verify_source(cfg, con, url, name=None, iata=None, now=None):
     try:
         v = wikidata.verify(cfg, domain, name, iata)
         prov = [f"https://www.wikidata.org/wiki/{v['qid']}"] if v["qid"] else [cfg["wikidata"]["api"]]
-        if v["tier"]:
+        if v["tier"] or v["government"]:
             verified_by, ttl = "wikidata", r["verify_ttl_days"]
         else:
             v["note"] = ("registry did not resolve this domain to an airline or travel site; "
@@ -39,20 +39,23 @@ def verify_source(cfg, con, url, name=None, iata=None, now=None):
         v = {"domain": domain, "tier": 0, "note": f"registry unreachable: {e}"}
         prov, verified_by, ttl = [cfg["wikidata"]["api"]], "unverified", r["unverified_ttl_days"]
     value = {k: v.get(k) for k in ("tier", "qid", "label", "match", "note")}
+    value["official_site"] = bool(v.get("official_site"))
+    value["government"] = bool(v.get("government"))
     knowledge.put(con, "source", domain, value, prov, ttl, verified_by, now)
     return {"domain": domain, **value, "verified_by": verified_by, "ttl_days": ttl}
 
 
-def confirm_source(cfg, con, url, tier, evidence, now=None):
+def confirm_source(cfg, con, url, tier, evidence, now=None, government=False):
     """Second runtime check when the registry cannot decide: at least N independent sites found
     now, none of them the candidate, each with a verbatim excerpt naming the candidate domain
-    as the official airline (tier 1) or travel search/booking site (tier 2)."""
+    as the official airline (tier 1), travel search/booking site (tier 2) or, with
+    `government`, the official site of a government body (tier 0)."""
     from . import knowledge, wikidata
     domain = wikidata.registrable(host(url))
     r = cfg["reliability"]
     errors = []
-    if tier not in (1, 2):
-        errors.append("--tier must be 1 (airline) or 2 (travel search/booking site)")
+    if tier not in (1, 2) and not (government and tier == 0):
+        errors.append("--tier must be 1 (airline) or 2 (travel search/booking site), or 0 with --government")
     seen = set()
     for i, (src, excerpt) in enumerate(evidence):
         d = wikidata.registrable(host(src))
@@ -69,7 +72,8 @@ def confirm_source(cfg, con, url, tier, evidence, now=None):
     if errors:
         raise schema.ValidationError(errors)
     value = {"tier": tier, "qid": None, "label": None, "match": "independent_sources",
-             "note": "; ".join(f"{src}: {ex[:160]}" for src, ex in evidence)}
+             "note": "; ".join(f"{src}: {ex[:160]}" for src, ex in evidence),
+             "official_site": True, "government": bool(government)}
     knowledge.put(con, "source", domain, value, [src for src, _ in evidence], r["independent_ttl_days"],
                   "independent_sources", now)
     return {"domain": domain, **value, "verified_by": "independent_sources", "ttl_days": r["independent_ttl_days"]}
@@ -81,7 +85,8 @@ def resolve(cfg, con, url, now=None):
     k = knowledge.get(con, "source", wikidata.registrable(host(url)), now)
     if not k or not k["fresh"]:
         return None
-    return {"tier": k["value"]["tier"], "verified_by": k["verified_by"]}
+    return {"tier": k["value"]["tier"], "verified_by": k["verified_by"],
+            "official_site": bool(k["value"].get("official_site")), "government": bool(k["value"].get("government"))}
 
 
 def independent(cfg, a, b):

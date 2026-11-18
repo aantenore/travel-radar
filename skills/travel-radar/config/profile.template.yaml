@@ -22,5 +22,20 @@ avoid:
 climate_ideal:
   tmax_min_c: null
   tmax_max_c: null
+traveller:                   # only from the user's own words
+  nationality: null          # citizenship, e.g. IT
+  passports: []              # [{country: IT, expiry: 2031-05-01}]
+  residence_country: null
+interests: []                # food, nature, hiking, history, art, photography, nightlife, spirituality, crafts...
+accommodation_style: null    # hostel | guesthouse | homestay | hotel | boutique | mixed
+budget_daily_eur: null       # on the ground, per day
+comfort_level: null          # basic | standard | comfortable
+dietary_needs: []
+mobility_limits: []          # e.g. altitude, long walks, long transfers (only if the user states them)
+languages: []
+region_experience: []        # regions already visited
+past_trips: []               # what made past trips great or bad
+rhythm: null                 # one_base | few_bases | moving_often
+deferred: []                 # fields the user left to us ("decidi tu"): {key, date, evidence}
 weights: {}                  # overrides scoring.default_weights
 learned: []                  # {date, rule, previous, reason, evidence}

@@ -51,8 +51,12 @@ What are the itinerary options, and should I book flights now or wait?
 Travel Radar will:
 1. Save what it learned about you, one line each (`saved: travel_style.party = solo`).
 2. Ask only for what blocks the search, for example your departure airport.
-3. Research climate, holidays and crowds, safety, costs and current flight prices.
-4. Score the options against your profile and show up to 3, with sources, local places and risks.
+3. Research climate, holidays and crowds, the geopolitical situation, visas and permits for your nationality, costs and current flight prices.
+4. Score the options against your profile and show up to 3, each with:
+   - sources, local places and risks;
+   - experiences that fit you, with where and how to book them;
+   - a short geopolitical-situation block;
+   - what you must do (visa, permits) and by when.
 5. Answer "book now or wait" from current prices and sources, not from guesses.
 6. When you pick an option, build a destination dossier and **propose** a monitoring plan: which flights and risks to watch, how often, and that each round uses tokens. Nothing is monitored until you say yes; you can accept only part of it ("only flights").
 
@@ -68,6 +72,63 @@ You can also start with an explicit command: `/travel-radar:trip 2-3 weeks in Ch
   - new all-time low;
   - drop versus the median;
   - change in safety or entry rules.
+
+## How it talks to you
+
+Like a good travel consultant, not a form.
+- **Few, useful questions.** After your first request and at each decision point it asks at most 2-3 short questions: the ones that would change the plan most. The ranking is computed by code from weights in config (`tw profile gaps`).
+- **Choices and reasons.** Each question offers concrete choices plus "decidi tu" ("you decide"), and says why it matters.
+- **No repeats.** It never re-asks what it already knows. Say "decidi tu" and it proceeds with stated assumptions, and does not ask that again.
+- **Profile vs this trip.** What you say about yourself goes to your profile (nationality, interests, accommodation style, daily budget, comfort, diet, mobility limits, languages, rhythm, past trips). What concerns only this trip (its budget, how flexible the dates are) stays on the trip.
+
+## Visas, permits and everything you need
+
+For each option and each place, researched for your nationality at the moment:
+- what it covers:
+  - entry (visa or exemption, how and where to apply, documents, cost, processing time);
+  - passport validity;
+  - transit rules for your layovers;
+  - special or regional permits;
+  - registration on arrival;
+  - health and insurance;
+  - customs;
+  - driving permits;
+  - drones;
+  - mandatory apps or real-name booking;
+  - your country's registration service for citizens abroad;
+- **official sources first.** A source counts as official only if code verifies at runtime that it is a government site. Something "required" according to unofficial sources only becomes "unknown, verify";
+- **deadlines computed by code**: departure − processing time − a safety margin. They go into your calendar export;
+- **affects the ranking**: a permit that cannot be obtained in time excludes the option;
+- **you apply yourself.** It never fills forms; it gives you the official link and the steps.
+
+## Geopolitical situation
+
+A sourced, neutral picture per country and place. It covers:
+- conflicts and tensions, including those affecting your nationality;
+- protests, elections and anniversaries in your window;
+- terrorism;
+- sanctions affecting cards and payments;
+- airspace closures on your flight routes;
+- strikes, epidemics and seasonal hazards;
+- internet restrictions;
+- insurance consequences.
+
+Rules enforced by code:
+- a warning needs two independent sources; one source is only "watch";
+- a blocker needs an official source;
+- your government's advisory level is mapped from the source's own scale;
+- everything expires after 7 days and is re-checked before any advice;
+- a blocker excludes an option.
+
+## Experiences
+
+Experiences chosen for you, researched at that moment: local workshops, markets, homestays, walks with locals, festivals in your dates, and the must-sees with tips to avoid crowds. Each comes with:
+- the profile reason it fits;
+- a price only if a source states it;
+- how to book: a link, or clear instructions (local app, contact, advance notice, ID requirements);
+- whether the booking site was verified. Unverified links are labelled as such.
+
+Booking lead times become calendar reminders. You book.
 
 ## Always current: runtime discovery, code verification
 
@@ -159,6 +220,9 @@ Everything you own lives outside the plugin, so updates never touch it:
 ├── settings.yaml           # optional overrides of the defaults
 ├── trips/<id>/trip.yaml    # options with metrics and sources
 ├── trips/<id>/dossier.yaml # destination dossier
+├── trips/<id>/requirements.yaml  # visas, permits, deadlines
+├── trips/<id>/geopolitics.yaml   # geopolitical situation
+├── trips/<id>/experiences.yaml   # experiences with booking info
 ├── trips/<id>/<id>.ics     # calendar export
 ├── trips/<id>/brief.md     # trip brief export
 ├── watches/<id>.yaml       # monitored flights / safety / weather

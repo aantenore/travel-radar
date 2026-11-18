@@ -38,6 +38,11 @@ Move to **Standard** if bookings or payments, a paid API, multiple users or mess
 | Accept an extracted price (tier, exact dates in window, price present in verbatim excerpt) | code | `reliability.check_flight_observation` |
 | Schedule the buy/wait follow-up | code (`recheck_date` → `advise_recheck`) | `store.set_recheck`, `watches.due` |
 | Verify alerts and suspects, write the final message | main model | skill §4, §7 |
+| Decide which questions to ask now (ranked missing facts per step) | code, weights in config | `tw profile gaps` |
+| Phrase the questions, warm and in the user's language | model | skill §0 |
+| Decide that a source is official (government site) | code, at runtime via registry or independent sources | `wikidata.official`, `evidence.annotate` |
+| Research requirements, geopolitics, experiences | model, at runtime | skill §9-11 |
+| Enforce their rules (official backing, independent sources, deadlines, TTLs, trip window) | code | `requirements.py`, `geopolitics.py`, `experiences.py` |
 | Approve monitoring (which watches, the scheduled task, restarting a parked trip) | user, quoted as evidence | `tw watch add`, `tw trip set --to monitoring`, `tw trip resume` require `--confirmed-by-user` |
 | Pick an option, override, book, pay | user | outside the system |
 
@@ -150,6 +155,17 @@ Date: 2026-11-18 · Status: accepted
 - **Live check (2026-11-18)**: a Kayak result page for exact dates rendered real fares in the desktop browser pane (e.g. Royal Jordanian 569 €, Air China direct 891 €). Google Flights stopped at the consent page, and declining cookies failed because the pane was not on screen ("tab not drawn"). So browser access needs the desktop app window to be able to render. Whether scheduled tasks have the browser tools is not verified yet; the round passes `--browser` only when they are present.
 - **Consequences**: the system shifts by itself from methods that stop working; the cost of the browser path is paid only where it is needed.
 
+### ADR-8. Official status, requirements and geopolitics as code-checked runtime research
+Date: 2026-11-18 · Status: accepted
+- **Context**: visas, permits and geopolitics change often and differ by nationality and destination; mistakes are costly (denied boarding, unsafe trips). A list of rules or advisory scales would be wrong for most users and soon stale.
+- **Decision**:
+  - The model researches; code decides what counts. A source is official only if the registry (Wikidata government agency, public authority, diplomatic mission, embassy, ministry, intergovernmental organisation, with matching official website) or two independent sites confirm it.
+  - `required` needs official backing (otherwise `unknown` plus a verify flag) and a lead time; deadlines are computed by code.
+  - Geopolitical warnings need two independent outlets and blockers an official source.
+  - Advisory levels are mapped from the source's own scale.
+  - Everything carries a TTL per category.
+- **Consequences**: no country rules in code; some official sites are not in the registry (for example a foreign ministry's travel-advice site on its own domain) and need `tw sources confirm --government`. International health bodies may not be classified as government on the registry and then count as non-official.
+
 ## 8. Behaviour scenarios (manual check or model grader)
 
 | # | Input | Expected |
@@ -173,6 +189,11 @@ Date: 2026-11-18 · Status: accepted
 | 20 | New route served by an airline missing from every list | Model proposes it with IATA code; `tw sources verify` makes it tier 1 from Wikidata |
 | 21 | Wikidata down | Source `unverified`, prices context only, `no_data` with reason unless two independent sites confirm; retried next day |
 | 22 | Site starts returning empty pages to webfetch | Outcomes recorded; `tw sources plan` moves it to browser/API |
+| 24 | Visa "required" per a blog only | Stored as `unknown` with a verify flag; official source searched |
+| 25 | One news article about unrest | `watch`, not `warning` |
+| 26 | Border-zone permit not obtainable before departure | Option excluded with the reason |
+| 27 | User says "decidi tu" about budget | Deferred, assumption stated, never asked again |
+| 28 | Experience link on an unverified ticket site | Shown as "unverified link" |
 | 23 | Booking window research older than its TTL | `research_needed` from advise; fallback marked heuristic until re-researched |
 | 16 | WAIT verdict during the first 14 days | Logged (`tw verdicts`), not notified; confirmed price alerts and safety/entry changes are still notified |
 | 12 | Model finds an airline sale ending tomorrow, advisor says WAIT | Both shown: verdict + explicit disagreement with source; user decides |

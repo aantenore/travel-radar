@@ -51,6 +51,16 @@ def ics(cfg, trip, now=None):
         day = trips._as_date(d["date"])
         lines += _event(f"{tid}-deadline-{n}@travel-radar", day, day + timedelta(days=1),
                         f"Deadline: {d['title']}", f"Source: {d.get('source', '')}", stamp)
+    from . import experiences, requirements
+    for d in requirements.check(cfg, tid)["deadlines"]:
+        if d["option"] in ("chosen", trip.get("chosen_option")):
+            day = trips._as_date(d["deadline"])
+            lines += _event(f"{tid}-req-{d['id']}@travel-radar", day, day + timedelta(days=1),
+                            f"Deadline: {d['action']}", f"Requirement {d['id']} ({d['status']})", stamp)
+    for d in experiences.check(cfg, tid)["deadlines"]:
+        day = trips._as_date(d["deadline"])
+        lines += _event(f"{tid}-exp-{d['id']}@travel-radar", day, day + timedelta(days=1),
+                        f"Book: {d['name']}", "Booking lead time from the source", stamp)
     for days in cfg.get("export", {}).get("recheck_before_days", []):
         day = start - timedelta(days=days)
         lines += _event(f"{tid}-recheck-{days}@travel-radar", day, day + timedelta(days=1),
@@ -60,7 +70,7 @@ def ics(cfg, trip, now=None):
     return "\r\n".join(_fold(x) for x in lines) + "\r\n"
 
 
-def brief(trip, dossier=None, reports=None):
+def brief(trip, dossier=None, reports=None, reqs=None, geo=None, exps=None):
     o, (start, end) = _require_chosen(trip)
     src = o.get("sources") or {}
     out = [f"# {o.get('name', trip['id'])}", "",
@@ -85,6 +95,29 @@ def brief(trip, dossier=None, reports=None):
         for k, v in (dossier.get("items") or {}).items():
             links = ", ".join(s.get("url", "") for s in (v or {}).get("sources") or [])
             out.append(f"- **{k}** ({(v or {}).get('status', 'unknown')}): {(v or {}).get('summary', '')} {links}".rstrip())
+        out.append("")
+    if geo:
+        out += ["## Geopolitical situation", ""]
+        for g in geo:
+            links = ", ".join(s["url"] for s in g.get("sources", []))
+            out.append(f"- **{g['topic']}** ({g['severity']}, {g.get('trend', 'unknown')}): {g.get('what_to_do', '')} {links}".rstrip())
+        out.append("")
+    if reqs:
+        out += ["## Visas, permits and everything to do", ""]
+        for r in sorted(reqs, key=lambda r: min((r.get("deadlines") or {"": "9999"}).values())):
+            dl = ", ".join(sorted((r.get("deadlines") or {}).values()))
+            off = "official" if any(s.get("official") for s in r.get("sources", [])) else "unofficial, verify"
+            out.append(f"- [{r['status']}] {r['action']}" + (f" (by {dl})" if dl else "") + f" — {off}: "
+                       + ", ".join(s["url"] for s in r.get("sources", [])))
+        out.append("")
+    if exps:
+        out += ["## Experiences", ""]
+        for x in exps:
+            b = x.get("booking") or {}
+            how = (b.get("url") + ("" if b.get("verified_by") != "unverified" else " (unverified link)")) if b.get("url") \
+                else b.get("instructions", "")
+            out.append(f"- **{x['name']}** ({x['place']}): {b.get('method')}: {how}"
+                       + (f"; book by {x['booking_deadline']}" if x.get("booking_deadline") else ""))
         out.append("")
     if src:
         out += ["## Sources", ""] + [f"- {k}: {', '.join(map(str, v))}" for k, v in src.items()] + [""]

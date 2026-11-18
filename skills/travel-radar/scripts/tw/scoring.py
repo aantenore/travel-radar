@@ -126,7 +126,38 @@ def score_option(cfg, profile, opt):
     }
 
 
-def score_trip(cfg, profile, trip):
-    results = [score_option(cfg, profile, o) for o in trip.get("options", [])]
+def _applies(item, trip, opt):
+    from . import geopolitics as g
+    return g.applies(item, trip, opt)
+
+
+def _apply_context(res, trip, opt, reqs, geo):
+    """Requirements and geopolitics researched at runtime: exclusions and conflicts."""
+    from . import geopolitics as g, requirements as r
+    for it in r.for_option(reqs or [], opt.get("id")):
+        if it["status"] == "required" and it.get("feasible_in_window") is False:
+            res["excluded"] = res["excluded"] or f"requirement not feasible in the window: {it['action']}"
+        elif it["status"] in ("required", "unknown") and it.get("feasible_in_window") == "unknown":
+            res["conflicts"].append(f"requirement with uncertain feasibility: {it['action']}")
+    for it in geo or []:
+        if not g.applies(it, trip, opt):
+            continue
+        if it["severity"] == "blocker":
+            res["excluded"] = res["excluded"] or f"geopolitics: {it['topic']}"
+        elif it["severity"] == "warning":
+            res["conflicts"].append(f"geopolitics warning: {it['topic']} ({it.get('trend', 'unknown')})")
+    if res["excluded"]:
+        res["score"] = None
+    return res
+
+
+def score_trip(cfg, profile, trip, reqs=None, geo=None):
+    results = []
+    for o in trip.get("options", []):
+        opt = dict(o)
+        levels = [i["safety_level"] for i in geo or [] if "safety_level" in i and _applies(i, trip, o)]
+        if levels:
+            opt["safety_level"] = max(levels + [o.get("safety_level") or 0])
+        results.append(_apply_context(score_option(cfg, profile, opt), trip, o, reqs, geo))
     ranked = sorted(results, key=lambda r: (r["score"] is None, -(r["score"] or 0)))
     return {"trip": trip.get("id"), "ranking": ranked}

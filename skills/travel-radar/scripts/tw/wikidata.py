@@ -60,6 +60,15 @@ def by_iata(cfg, code):
     return [r["item"]["value"].rsplit("/", 1)[-1] for r in rows]
 
 
+def by_site(cfg, domain):
+    """Entities whose official website (P856) is exactly this domain (scheme/www/slash variants)."""
+    reg = registrable(domain)
+    hosts = {domain.lower(), reg, "www." + reg}
+    uris = " ".join(f"<{s}://{h}{t}>" for s in ("http", "https") for h in hosts for t in ("", "/"))
+    rows = _sparql(cfg, f"SELECT DISTINCT ?item WHERE {{ VALUES ?site {{ {uris} }} ?item wdt:P856 ?site . }}")
+    return [r["item"]["value"].rsplit("/", 1)[-1] for r in rows]
+
+
 def describe(cfg, qids):
     """{qid: {label, sites, iata, airline, travel}} for the given entities."""
     if not qids:
@@ -68,22 +77,25 @@ def describe(cfg, qids):
     vals = " ".join(f"wd:{q}" for q in qids if re.fullmatch(r"Q\d+", q))
     air = " ".join(f"wd:{q}" for q in w["airline_classes"])
     trav = " ".join(f"wd:{q}" for q in w["travel_classes"])
-    q = (f"SELECT ?item ?itemLabel ?site ?iata ?air ?trav WHERE {{ VALUES ?item {{ {vals} }} "
+    gov = " ".join(f"wd:{q}" for q in w["government_classes"])
+    q = (f"SELECT ?item ?itemLabel ?site ?iata ?air ?trav ?gov WHERE {{ VALUES ?item {{ {vals} }} "
          f"OPTIONAL {{ ?item wdt:P856 ?site }} OPTIONAL {{ ?item wdt:P229 ?iata }} "
          f"BIND(EXISTS {{ ?item wdt:P31/wdt:P279* ?a . VALUES ?a {{ {air} }} }} AS ?air) "
          f"BIND(EXISTS {{ ?item wdt:P31/wdt:P279* ?t . VALUES ?t {{ {trav} }} }} AS ?trav) "
+         f"BIND(EXISTS {{ ?item wdt:P31/wdt:P279* ?g . VALUES ?g {{ {gov} }} }} AS ?gov) "
          f'SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }} }}')
     out = {}
     for b in _sparql(cfg, q):
         qid = b["item"]["value"].rsplit("/", 1)[-1]
         e = out.setdefault(qid, {"label": b.get("itemLabel", {}).get("value"), "sites": set(), "iata": set(),
-                                 "airline": False, "travel": False})
+                                 "airline": False, "travel": False, "gov": False})
         if "site" in b:
             e["sites"].add(b["site"]["value"])
         if "iata" in b:
             e["iata"].add(b["iata"]["value"])
         e["airline"] |= b["air"]["value"] == "true"
         e["travel"] |= b["trav"]["value"] == "true"
+        e["gov"] |= b.get("gov", {}).get("value") == "true"
     return out
 
 
@@ -102,9 +114,20 @@ def classify(domain, entities):
     return best
 
 
+def official(domain, entities):
+    """Pure decision: an entity whose official website matches `domain` (exact or brand), and
+    whether that entity is a government body / diplomatic mission / intergovernmental org."""
+    best = None
+    for qid, e in entities.items():
+        m = match_domain(domain, e["sites"])
+        if m and (best is None or (m == "exact" and best["match"] != "exact") or (e["gov"] and not best["government"])):
+            best = {"entity": qid, "label": e["label"], "match": m, "government": e["gov"]}
+    return best
+
+
 def verify(cfg, domain, name=None, iata=None):
     """Raises sources.SourceError if Wikidata cannot be reached."""
-    qids = []
+    qids = by_site(cfg, domain)
     if iata:
         qids += by_iata(cfg, iata)
     for n in filter(None, [name, brand(domain)]):
@@ -112,5 +135,8 @@ def verify(cfg, domain, name=None, iata=None):
     qids = list(dict.fromkeys(qids))
     ents = describe(cfg, qids)
     tier, qid, label, match = classify(domain, ents)
-    return {"domain": registrable(domain), "tier": tier, "qid": qid, "label": label, "match": match,
+    off = official(domain, ents)
+    return {"domain": registrable(domain), "tier": tier, "qid": qid or (off or {}).get("entity"),
+            "label": label or (off or {}).get("label"), "match": match or (off or {}).get("match"),
+            "official_site": bool(off), "government": bool(off and off["government"] and off["match"] == "exact"),
             "candidates": qids, "verified_by": "wikidata"}

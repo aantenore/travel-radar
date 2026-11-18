@@ -5,7 +5,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import access, advise as advise_mod, config, knowledge, dossier, export, reliability, ideas, profile as profile_mod, schema, scoring, sources, store, trips, watches
+from . import access, advise as advise_mod, config, experiences, geopolitics, knowledge, requirements, dossier, export, reliability, ideas, profile as profile_mod, schema, scoring, sources, store, trips, watches
 
 
 def _out(obj):
@@ -49,6 +49,10 @@ def _parser():
 
     psub = sub.add_parser("profile").add_subparsers(dest="pcmd", required=True)
     psub.add_parser("show")
+    pg = psub.add_parser("gaps", help="missing facts ranked by impact on the current step")
+    pg.add_argument("--trip"); pg.add_argument("--step", default="plan")
+    pd = psub.add_parser("defer", help="the user left this to us: never ask it again")
+    pd.add_argument("--key", required=True); pd.add_argument("--evidence", required=True)
     ps = psub.add_parser("set")
     ps.add_argument("--key", required=True, help="e.g. avoid.temp_max_c")
     ps.add_argument("--value", required=True, help='JSON value, e.g. 30, true, ["FCO"], "solo"')
@@ -64,6 +68,9 @@ def _parser():
     tp.add_argument("trip"); tp.add_argument("--reason", required=True); tp.add_argument("--until")
     tr = tsub.add_parser("resume", help="preview what changed; with --confirmed-by-user, reactivate")
     tr.add_argument("trip"); tr.add_argument("--confirmed-by-user")
+    tf = tsub.add_parser("fact", help="a trip-specific answer (kept out of the profile)")
+    tf.add_argument("trip"); tf.add_argument("--key", required=True); tf.add_argument("--value", required=True, help="JSON")
+    tf.add_argument("--evidence", required=True)
     td = tsub.add_parser("done", help="close the trip, stop watches, return debrief topics")
     td.add_argument("trip")
 
@@ -73,6 +80,14 @@ def _parser():
     ic = isub.add_parser("checked"); ic.add_argument("id", type=int); ic.add_argument("--note")
     ip = isub.add_parser("promote"); ip.add_argument("id", type=int); ip.add_argument("--trip", required=True)
     idr = isub.add_parser("drop"); idr.add_argument("id", type=int)
+
+    for name, helptext in (("requirements", "visas, permits and everything needed"),
+                           ("geopolitics", "geopolitical situation"), ("experience", "experiences with booking info")):
+        xs = sub.add_parser(name, help=helptext).add_subparsers(dest="xcmd", required=True)
+        xa = xs.add_parser("add", help="validate and store items from a YAML file (list or {items: [...]})")
+        xa.add_argument("trip"); xa.add_argument("--file", required=True)
+        xc = xs.add_parser("check"); xc.add_argument("trip")
+        xl = xs.add_parser("list"); xl.add_argument("trip")
 
     esub = sub.add_parser("export").add_subparsers(dest="ecmd", required=True)
     for name in ("ics", "brief"):
@@ -107,7 +122,8 @@ def _parser():
     sv.add_argument("--url", required=True); sv.add_argument("--name", help="entity name, e.g. the airline")
     sv.add_argument("--iata", help="airline IATA code, if an airline")
     sc = ssub.add_parser("confirm", help="verify via independent sources when the registry cannot decide")
-    sc.add_argument("--url", required=True); sc.add_argument("--tier", type=int, required=True)
+    sc.add_argument("--url", required=True); sc.add_argument("--tier", type=int, default=0)
+    sc.add_argument("--government", action="store_true", help="the domain is the official site of a government body")
     sc.add_argument("--evidence", action="append", required=True, help="URL of an independent site")
     sc.add_argument("--excerpt", action="append", required=True, help="verbatim text from that site (same order)")
     sp = ssub.add_parser("plan", help="ordered (source, method) attempts for a watch")
@@ -161,9 +177,14 @@ def _run(a, cfg):
     if a.cmd == "holidays":
         return _out(sources.holidays(cfg, a.country, a.year, a.start, a.end))
     if a.cmd == "score":
-        trip = config.load_yaml(Path(a.trip_file))
+        tf = Path(a.trip_file)
+        trip = config.load_yaml(tf)
         schema.trip(trip)
-        return _out(scoring.score_trip(cfg, config.profile(cfg), trip))
+        extra = {}
+        for key, name in (("reqs", "requirements.yaml"), ("geo", "geopolitics.yaml")):
+            f = tf.parent / name
+            extra[key] = (config.load_yaml(f).get("items") or []) if f.exists() else []
+        return _out(scoring.score_trip(cfg, config.profile(cfg), trip, **extra))
     if a.cmd == "checklist":
         return _out(config.load_yaml(config.path(cfg, "dossier_checklist")))
     if a.cmd == "dossier-check":
@@ -181,6 +202,12 @@ def _run(a, cfg):
         prof = config.profile(cfg)
         if a.pcmd == "show":
             return _out({"path": str(config.path(cfg, "profile")), "profile": prof})
+        if a.pcmd == "gaps":
+            return _out(profile_mod.gaps(cfg, prof, trips.load(cfg, a.trip) if a.trip else None, a.step))
+        if a.pcmd == "defer":
+            res = profile_mod.defer(prof, a.key, a.evidence)
+            profile_mod.save(config.path(cfg, "profile"), prof)
+            return _out(res)
         change = profile_mod.set_value(prof, a.key, json.loads(a.value), a.evidence, a.reason)
         profile_mod.save(config.path(cfg, "profile"), prof)
         return _out({"saved": change})
@@ -202,7 +229,8 @@ def _run(a, cfg):
         if a.scmd == "confirm":
             if len(a.evidence) != len(a.excerpt):
                 raise ValueError("give one --excerpt per --evidence, in the same order")
-            return _out(reliability.confirm_source(cfg, con, a.url, a.tier, list(zip(a.evidence, a.excerpt))))
+            return _out(reliability.confirm_source(cfg, con, a.url, a.tier, list(zip(a.evidence, a.excerpt)),
+                                                   government=a.government))
         if a.scmd == "plan":
             _watch(cfg, a.watch)
             cands, unverified = [], []
@@ -228,7 +256,20 @@ def _run(a, cfg):
         return _out(knowledge.stale(con))
     if a.cmd == "verdicts":
         return _out(store.verdicts(con, a.watch))
+    if a.cmd in ("requirements", "geopolitics", "experience"):
+        mod = {"requirements": requirements, "geopolitics": geopolitics, "experience": experiences}[a.cmd]
+        if a.xcmd == "list":
+            return _out(mod.load(cfg, a.trip))
+        if a.xcmd == "check":
+            return _out(mod.check(cfg, a.trip))
+        data = config.load_yaml(Path(a.file).expanduser())
+        items = data.get("items", []) if isinstance(data, dict) else data
+        if a.cmd == "experience":
+            return _out(mod.add(cfg, con, a.trip, items, set(schema.PROFILE_FIELDS)))
+        return _out(mod.add(cfg, con, a.trip, items))
     if a.cmd == "trip":
+        if a.tcmd == "fact":
+            return _out(trips.fact(cfg, a.trip, a.key, json.loads(a.value), a.evidence))
         if a.tcmd == "list":
             return _out(trips.list_all(cfg))
         if a.tcmd == "set":
@@ -254,7 +295,8 @@ def _run(a, cfg):
             text, name = export.ics(cfg, trip), f"{a.trip}.ics"
         else:
             reps = [watches.report(con, w) for w in watches.load_all(cfg) if w.get("trip") == a.trip]
-            text, name = export.brief(trip, trips.load_dossier(cfg, a.trip), reps), "brief.md"
+            text, name = export.brief(trip, trips.load_dossier(cfg, a.trip), reps, requirements.load(cfg, a.trip),
+                                      geopolitics.load(cfg, a.trip), experiences.load(cfg, a.trip)), "brief.md"
         out = Path(a.out).expanduser() if a.out else trips._dir(cfg, a.trip) / name
         out.write_text(text, encoding="utf-8")
         return _out({"written": str(out)})

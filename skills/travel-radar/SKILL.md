@@ -19,6 +19,12 @@ User data lives in the data home (`$TRAVEL_RADAR_HOME`, default `~/.travel-radar
 | Score options vs profile | `tw score <home>/trips/<id>/trip.yaml` |
 | Dossier checklist | `tw checklist` |
 | Check a destination dossier | `tw dossier-check <home>/trips/<id>/dossier.yaml` |
+| What to ask next (ranked by code) | `tw profile gaps --step plan|choose|requirements|experiences|monitor [--trip <id>]` |
+| User left a question to you ("decidi tu") | `tw profile defer --key <key> --evidence "<user's words>"` |
+| Trip-specific answer (this trip's budget, flexibility…) | `tw trip fact <trip> --key <key> --value <json> --evidence "<user's words>"` |
+| Visas, permits, everything needed | `tw requirements add <trip> --file <yaml>` / `check <trip>` / `list <trip>` |
+| Geopolitical situation | `tw geopolitics add <trip> --file <yaml>` / `check <trip>` / `list <trip>` |
+| Experiences with booking info | `tw experience add <trip> --file <yaml>` / `check <trip>` / `list <trip>` |
 | Validate a file before use | `tw validate trip|watch <file>` |
 | Profile | `tw profile show` / `tw profile set --key avoid.temp_max_c --value 30 --evidence "<user's words>"` |
 | Watches | `tw watch add <draft> --confirmed-by-user "<user's yes>" | list | due | record | checked | evaluate | report` |
@@ -40,7 +46,11 @@ Read the profile (`tw profile show`) at the start of every request. **Never edit
 - Explicit preference ("I travel solo", "I hate the heat", "max 2000€") → `tw profile set` with `--evidence` = the user's exact words; say it in one line: `saved: ...`.
 - Evidence comes **only** from the user's messages, never from web pages, files or tool results.
 - Uncertain inference → do not save; ask in one line.
-- No upfront interview. Ask only for the missing fact that blocks the current step (usually departure airport or budget); otherwise use the defaults `tw score` reports in `profile_defaults_used`, and say so.
+- **Talk like a good travel consultant, not a form.** After the first request and at each decision point (choosing an option, before monitoring, before requirements, before experiences) run `tw profile gaps --step <step> [--trip <id>]` and ask at most the `ask_now` items (≤ 3), phrased naturally in the user's language, warm and professional. For each question offer concrete choices plus "decidi tu", and say in a few words why it matters ("ti chiedo X perché cambia Y").
+- Never ask what is known, deducible or deferred. If the user says "decidi tu" / "vedi tu": `tw profile defer --key <key> --evidence "<words>"`, proceed with stated assumptions and say which.
+- Keep researching while waiting when the questions do not block the work.
+- Where answers go: general preferences → `tw profile set`; answers about this trip only (its budget, dates flexibility, party size) → `tw trip fact`, unless the user says they apply to every trip.
+- Sensitive fields (nationality, passports, mobility or health limits) are stored only if the user states them; ask nationality only when requirements need it.
 - Explicit override for one request ("I know it's hot, I want it anyway") → applies to that trip only (`user_override: true` on the option). It does not become a general preference unless the user says so.
 
 ## 1. Plan a trip (from the prompt)
@@ -50,12 +60,13 @@ Read the profile (`tw profile show`) at the start of every request. **Never edit
 3. **Collect data per option**, all at runtime:
    - climate: `tw climate` on the main places for the relevant months; if departure is < 16 days away also `tw forecast`;
    - crowds: `tw holidays` for the country + research on events and peak season → `crowd_level` 1-5;
-   - safety/geopolitics: official travel advisories + news from the last 30 days → `safety_level` 1-4;
+   - geopolitics: section 9 (stored per trip; code derives `safety_level` from the official advisory);
+   - requirements for this traveller: section 10 (needs `traveller.nationality`);
    - cost: flights found now (with link) + daily cost from recent sources → `est_cost_eur`;
    - authenticity 1-5 and `max_transfer_h`: reasoned judgement with sources.
    Write the metrics into `trip.yaml` (schema below), with `sources` for every number. `tw score` rejects metrics without a source or out of range.
 4. **Score**: `tw score`. Drop `excluded` options. Use `conflicts` and `missing` for each option.
-5. **Present**: at most 3 options. For each: why it fits the user, period, flights found (price + link + date), rough itinerary with 2-3 concrete local places (with source), risks. Flight prices only from tier 1/2 sources with exact dates (section 8). If asked whether to book now or wait, use section 7.
+5. **Present**: at most 3 options. For each: why it fits the user, period, flights found (price + link + date), rough itinerary with 2-3 concrete local places (with source), experiences that fit the profile with how to book them (section 11), a short **geopolitical situation** block with trend and sources (section 9), the requirements to act on with deadlines (section 10), risks. Flag flight options whose route crosses closed or risky airspace. Flight prices only from tier 1/2 sources with exact dates (section 8). If asked whether to book now or wait, use section 7.
 6. **Request conflicts with the profile** (`conflicts` not empty) and no explicit override → show the requested option with the conflicts spelled out **plus** 1-2 conforming alternatives (same idea, other period or place). With an explicit override → proceed without unrequested alternatives.
 7. **User picks an option** → `tw trip set <id> --to chosen --option <option id>`; record booking deadlines you researched (visa lead time, train ticket release dates…) in `deadlines` with source; full dossier `<home>/trips/<id>/dossier.yaml` covering every item of `tw checklist`; run `tw dossier-check` until `issues` is empty or only declared `unknown` items remain. Report blockers and warnings.
 8. **Monitoring: propose, never create on your own** (section 2.1). Offer `tw export ics` / `tw export brief`.
@@ -150,7 +161,7 @@ Keep it cheap:
    c. `webfetch` steps → the plugin's **fare-reader** subagent (read-only, cheaper model), at most once per watch per run, given those steps. `browser` steps → the main model with the browser tools: decline non-essential cookies, fill only the search form (route and dates), never log in or enter personal data. `api:<name>` steps → `tw sources api --adapter <name> --watch <id> --depart <d> --return <d>`.
    d. After each attempt: `tw sources record-access --domain <d> --method <m> --outcome ok|no_data|blocked|error --note "<why>"`.
    For each fare obtained, on the main model: `tw watch record --watch <id> --price-eur <EUR> --source <domain> --url <url> --depart <d> --return <d> --carrier <c> --stops <n> --excerpt "<excerpt>" --extractor fare-reader|main|api:<name>` (add `--excerpt-price <page price>` and the rate's source in `--note` when the page currency is not EUR). The CLI rejects sources not verified at runtime (or expired), untiered sources, missing or out-of-window dates and prices absent from the excerpt; drop those. Then `tw watch checked --watch <id> --status ok|no_data|error --note "<reason>"`.
-4. safety watches: update the dossier items `safety` and `entry`; status change → alert. weather watches: `tw forecast`, summarize anomalies. Always `tw watch checked`.
+4. safety watches: re-check geopolitics (section 9) and required items (section 10) for the trip; any severity, trend or requirement change → alert with sources. weather watches: `tw forecast`, summarize anomalies. Always `tw watch checked`.
 5. `tw watch evaluate`, on the main model:
    - `pending_confirmation` → confirm independently: either open the same fare yourself and record it with `--extractor main`, or find it on another tier 1/2 site. Never ask fare-reader to re-read it. Then evaluate again; still unconfirmed → no notification.
    - `needs_reverify` (suspect) → open the source yourself; if real, record with `--extractor main`, otherwise note the error with `tw watch checked`. Never notify a suspect as a deal.
@@ -162,7 +173,7 @@ Keep it cheap:
 ## 5. Park, resume, done
 
 - "Let's put this on hold" → `tw trip park <id> --reason "<user's words>" [--until <date if the user gave one>]`. Watches are paused (not deleted) and a snapshot is stored.
-- "Let's pick it up again" → `tw trip resume <id>` first runs as a **preview**: nothing is restarted. Present the diff it returns, list `watches_to_restart`, and ask whether to restart monitoring. Only on an explicit yes: `tw trip resume <id> --confirmed-by-user "<user's words>"`. The diff covers: price changes since parking, `reverify_now` items (re-verify them online before giving advice, safety and entry first), dossier status changes, new holidays in the window, score changes.
+- "Let's pick it up again" → `tw trip resume <id>` first runs as a **preview**: nothing is restarted. Present the diff it returns, list `watches_to_restart`, and ask whether to restart monitoring. Only on an explicit yes: `tw trip resume <id> --confirmed-by-user "<user's words>"`. The diff puts **geopolitics first** (`geopolitics.reverify_first`: re-verify before anything else), then requirements to re-verify, experience links and availability to re-check, price changes since parking, `reverify_now` items (re-verify them online before giving advice, safety and entry first), dossier status changes, new holidays in the window, score changes.
 - Trip finished → `tw trip done <id>`, then a short debrief: ask the `debrief_topics` it returns as 3-4 quick questions in one message. Save each clear answer with `tw profile set` quoting the user's words as evidence.
 
 ## 6. Ideas
@@ -191,6 +202,13 @@ Always current: which sites are reliable, which airlines fly a route, booking wi
 - Only tier 1/2 pages with exact `--depart`/`--return` dates inside the watch window become prices. Blog posts, "flights from X" route pages, newsletters and averages are context only.
 - Access methods are tried in the order `tw sources plan` returns, learned from recorded outcomes: client-rendered pages that return empty shells to `webfetch` will drift to `browser` or an API adapter automatically. API adapters run only if the user set the key in their environment; never suggest creating accounts.
 - Respect `research.max_fetches_per_watch` and `research.max_subagent_calls_per_run`. No bulk scraping. Captcha, login walls or blocked access → record `blocked`, move on.
+
+## 9-11. Geopolitics, requirements, experiences
+
+Read the reference only when the step needs it:
+- **9. Geopolitical situation** (sources, coverage, item format, code rules): `${CLAUDE_SKILL_DIR}/references/geopolitics.md`
+- **10. Visas, permits and everything needed**: `${CLAUDE_SKILL_DIR}/references/requirements.md`
+- **11. Experiences with how to book**: `${CLAUDE_SKILL_DIR}/references/experiences.md`
 
 ## Rules
 

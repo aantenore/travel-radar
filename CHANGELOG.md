@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0 - 2026-11-18
+
+- **Consultative intake**: `tw profile gaps --step` ranks the missing facts by impact (weights in config); the skill asks at most 3 natural questions with choices and "decidi tu", never re-asks (`tw profile defer`), and keeps trip-specific answers on the trip (`tw trip fact`). Richer profile: traveller (nationality, passports, residence), interests, accommodation style, daily budget, comfort, diet, mobility limits, languages, region experience, past trips, rhythm.
+- **Visas, permits and everything needed** (`tw requirements add|check|list`): runtime research per option and place; official = government site verified at runtime; non-official `required` → `unknown` + verify flag; lead time required; deadlines computed by code; TTL per category; infeasible required permits exclude options.
+- **Geopolitical situation** (`tw geopolitics add|check|list`): runtime research from official advisories and independent news; warnings need 2 independent outlets, blockers an official source; advisory levels mapped from the source's own scale to the scoring safety level; 7-day TTL; blockers exclude options, warnings are conflicts.
+- **Experiences** (`tw experience add|check|list`): profile-matched experiences with booking method, link or instructions, sourced prices, trip-window dates and runtime-verified booking links.
+- Official-source detection: Wikidata lookup by official website, government classes in config; `tw sources confirm --government`.
+- Export: requirement and experience deadlines in the calendar; brief lists geopolitics, everything to do and experiences. Resume puts geopolitics first.
+- Skill reference files for sections 9-11 (loaded only when needed).
+
 ## 0.7.0 - 2026-11-18
 
 No shipped lists, not even as fallback.

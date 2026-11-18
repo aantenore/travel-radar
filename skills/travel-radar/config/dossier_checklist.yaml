@@ -46,6 +46,11 @@ items:
     required: true
     max_age_days: 180
     hint: local forums, communities, blogs in the local language; always cite the source
+  experiences:
+    label: Experiences that fit the profile, with how to book
+    required: false
+    max_age_days: 30
+    hint: runtime research; stored in experiences.yaml with booking method and sources
   deals:
     label: Current deals (flights, lodging)
     required: false

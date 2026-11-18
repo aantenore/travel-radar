@@ -59,6 +59,8 @@ wikidata:
   search_limit: 3
   airline_classes: [Q46970]                          # airline
   travel_classes: [Q118710708, Q114106, Q1276157]    # classes: online travel agency, metasearch engine, travel website
+  # classes: government agency, public authority, diplomatic mission, embassy, ministry of foreign affairs, ministry, intergovernmental org
+  government_classes: [Q327333, Q4383245, Q213283, Q3917681, Q20901295, Q192350, Q245065]
 
 # How pages are read. Order is learned per source from measured outcomes (tw sources plan).
 access:
@@ -96,6 +98,42 @@ research:
   max_fetches_per_watch: 6   # web pages per watch per run
   max_subagent_calls_per_run: 4   # fare-reader calls per monitoring run; extra watches wait for the next run
   monitor_every_h: 6         # scheduled task frequency
+
+requirements:
+  safety_margin_days: 14     # deadline = departure - lead_time - margin
+  ttl_days:                  # re-verify after (days), per category
+    entry: 14
+    passport: 30
+    transit: 14
+    permits: 14
+    registration: 30
+    health: 30
+    customs: 60
+    driving: 60
+    drones: 30
+    apps: 14
+    citizen_registration: 90
+
+geopolitics:
+  ttl_days: 7
+  news_days: 30              # how far back news is searched
+
+experiences:
+  ttl_days: 30
+
+# Consultative intake: which missing facts to ask about first, per step (higher = asked first).
+# "trip.<key>" = a fact of the current trip (tw trip fact), everything else = a profile field.
+intake:
+  max_questions: 3
+  trip_facts: [trip_budget_eur, dates_flexibility_days, party_size, length_days, must_include, must_avoid]
+  steps:
+    plan: {constraints.origin_airports: 10, trip.trip_budget_eur: 9, constraints.budget_total_eur: 8,
+           trip.dates_flexibility_days: 8, interests: 7, travel_style.pace: 5, travel_style.party: 5, rhythm: 4}
+    choose: {trip.dates_flexibility_days: 8, budget_daily_eur: 7, comfort_level: 6, accommodation_style: 5,
+             mobility_limits: 5, rhythm: 4, dietary_needs: 3}
+    requirements: {traveller.nationality: 10, traveller.passports: 9, traveller.residence_country: 6}
+    experiences: {interests: 9, languages: 5, mobility_limits: 5, region_experience: 4, past_trips: 3, dietary_needs: 3}
+    monitor: {constraints.origin_airports: 9, constraints.budget_flight_eur: 8, trip.dates_flexibility_days: 6}
 
 rollout:
   shadow_days: 14   # from first use: verdicts are logged and shown on request, not pushed as notifications

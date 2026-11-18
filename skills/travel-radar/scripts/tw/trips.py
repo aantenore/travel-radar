@@ -106,6 +106,19 @@ def set_status(cfg, trip_id, to, option=None, confirmed_by_user=None):
     return {"trip": trip_id, "from": old, "to": to}
 
 
+def fact(cfg, trip_id, key, value, evidence, today=None):
+    """A trip-specific answer (this trip's budget, dates flexibility...), kept out of the profile."""
+    if key not in cfg["intake"]["trip_facts"]:
+        raise schema.ValidationError([f"unknown trip fact {key!r}; valid: {cfg['intake']['trip_facts']}"])
+    if not evidence or not str(evidence).strip():
+        raise schema.ValidationError(["evidence is required: quote the user's own words"])
+    trip = load(cfg, trip_id)
+    trip.setdefault("facts", {})[key] = {"value": value, "evidence": str(evidence).strip(),
+                                         "date": (today or date.today()).isoformat()}
+    save(cfg, trip)
+    return {"trip": trip_id, "fact": key, "value": value}
+
+
 def _trip_watch_files(cfg, trip_id):
     for f in sorted(config.path(cfg, "watches_dir").glob("*.yaml")):
         w = config.load_yaml(f)
@@ -225,7 +238,14 @@ def resume(cfg, con, trip_id, today=None, confirmed_by_user=None):
                                                "resumed": today.isoformat(), "confirmed_by_user": confirmation})
         del trip["parked"]
         save(cfg, trip)
+    from . import experiences, geopolitics, requirements
+    geo = geopolitics.check(cfg, trip_id, today)
+    req = requirements.check(cfg, trip_id, today)
+    exp = experiences.check(cfg, trip_id, today)
     return {
+        "geopolitics": {"reverify_first": geo["stale"], "current": [g for g in geo["items"] if g["severity"] != "info"]},
+        "requirements": {"reverify": [r["id"] for r in req["stale"]], "blockers": req["blockers"], "deadlines": req["deadlines"]},
+        "experiences": {"reverify_links_and_availability": exp["stale"]},
         "trip": trip_id, "preview": not apply,
         "status": trip["status"] if apply else f"parked (would return to {parked['previous_status']})",
         "days_parked": days, ("resumed_watches" if apply else "watches_to_restart"): resumed,

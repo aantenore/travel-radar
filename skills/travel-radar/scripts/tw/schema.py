@@ -114,12 +114,22 @@ PROFILE_FIELDS = {
     "avoid.max_rain_days_per_month": NUM, "avoid.max_transfer_h": NUM, "avoid.other": (list,),
     "climate_ideal.tmax_min_c": NUM, "climate_ideal.tmax_max_c": NUM,
     "weights": (dict,),
+    "traveller.nationality": (str,), "traveller.passports": (list,), "traveller.residence_country": (str,),
+    "interests": (list,), "accommodation_style": (str,), "budget_daily_eur": NUM, "comfort_level": (str,),
+    "dietary_needs": (list,), "mobility_limits": (list,), "languages": (list,), "region_experience": (list,),
+    "past_trips": (list,), "rhythm": (str,),
 }
+
+TRIP_FACT_HINTS = {"dates", "dates_flexibility_days", "trip_budget_eur", "party_size", "must_include", "must_avoid",
+                   "start_date", "end_date", "length_days"}
+TRIP_ONLY_HINT = ("this looks trip-specific: store it on the trip with `tw trip fact <trip> --key <key> ...` "
+                  "unless the user said it applies to every trip")
 
 
 def profile_value(key, value):
     if key not in PROFILE_FIELDS:
-        raise ValidationError([f"unknown profile field: {key}. Valid: {', '.join(sorted(PROFILE_FIELDS))}"])
+        hint = f" ({TRIP_ONLY_HINT})" if key.split(".")[-1] in TRIP_FACT_HINTS else ""
+        raise ValidationError([f"unknown profile field: {key}{hint}. Valid: {', '.join(sorted(PROFILE_FIELDS))}"])
     t = PROFILE_FIELDS[key]
     if value is not None and (not isinstance(value, t) or (bool not in t and isinstance(value, bool))):
         raise ValidationError([f"{key}: expected type {[x.__name__ for x in t]}, got {type(value).__name__}"])
