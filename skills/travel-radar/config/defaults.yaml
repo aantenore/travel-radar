@@ -10,7 +10,7 @@ paths:
 
 http:
   timeout_s: 20
-  user_agent: travel-radar/0.1
+  user_agent: travel-radar/0.6 (+https://github.com/aantenore/travel-radar)
   cache_ttl_s: 21600   # 6h
 
 sources:
@@ -37,52 +37,55 @@ alerts:
   min_history: 3        # observations required for drop_pct
   suspect_drop_pct: 60  # drops beyond this are likely misreads: re-verify, never notify as a deal
 
-# Which sources may produce a price observation. Regex on host+path, lowercase, without "www.".
-# Add your own with tier1_extra / tier2_extra in settings.yaml (lists are replaced, not merged).
+# Which sources may produce a price observation: tier 1 airline, tier 2 travel search/booking site.
 reliability:
-  tier1:   # airline official sites; "([a-z0-9-]+\.)?" allows regional subdomains (it.ceair.com)
-    - '^ita-airways\.com/'
-    - '^airchina\.[a-z.]+/'
-    - '^([a-z0-9-]+\.)?ceair\.com/'
-    - '^([a-z0-9-]+\.)?csair\.com/'
-    - '^([a-z0-9-]+\.)?hainanairlines\.com/'
-    - '^([a-z0-9-]+\.)?hnair\.com/'
-    - '^([a-z0-9-]+\.)?sichuanair\.com/'
-    - '^([a-z0-9-]+\.)?xiamenair\.com/'
-    - '^([a-z0-9-]+\.)?cathaypacific\.com/'
-    - '^lufthansa\.com/'
-    - '^swiss\.com/'
-    - '^austrian\.com/'
-    - '^brusselsairlines\.com/'
-    - '^saudia\.com/'
-    - '^airfrance\.[a-z.]+/'
-    - '^klm\.[a-z.]+/'
-    - '^britishairways\.com/'
-    - '^iberia\.com/'
-    - '^emirates\.com/'
-    - '^qatarairways\.com/'
-    - '^etihad\.com/'
-    - '^turkishairlines\.com/'
-    - '^finnair\.com/'
-    - '^singaporeair\.com/'
-    - '^ana\.co\.jp/'
-    - '^jal\.co\.jp/'
-    - '^koreanair\.com/'
-    - '^thaiairways\.com/'
-    - '^united\.com/'
-    - '^delta\.com/'
-    - '^aa\.com/'
-    - '^ryanair\.com/'
-    - '^easyjet\.com/'
-    - '^vueling\.com/'
-    - '^wizzair\.com/'
-  tier1_extra: []
-  tier2:   # meta-search, only with exact dates
-    - '^google\.[a-z.]+/travel/flights'
-    - '^skyscanner\.[a-z.]+/'
-    - '^kayak\.[a-z.]+/'
-    - '^momondo\.[a-z.]+/'
-  tier2_extra: []
+  # Runtime verification (Wikidata) is the authority; verdicts are cached in the knowledge store.
+  verify_ttl_days: 30
+  fallback_ttl_days: 1      # retry verification soon when only the fallback was available
+  # OFFLINE FALLBACK ONLY: used when Wikidata is unreachable or does not classify a site.
+  # Observations relying on it are marked verified_by: fallback. Not the authority.
+  fallback:
+    tier1:   # airline official sites; "([a-z0-9-]+\.)?" allows regional subdomains (it.ceair.com)
+      - '^ita-airways\.com/'
+      - '^airchina\.[a-z.]+/'
+      - '^([a-z0-9-]+\.)?ceair\.com/'
+      - '^([a-z0-9-]+\.)?csair\.com/'
+      - '^([a-z0-9-]+\.)?hainanairlines\.com/'
+      - '^([a-z0-9-]+\.)?hnair\.com/'
+      - '^([a-z0-9-]+\.)?sichuanair\.com/'
+      - '^([a-z0-9-]+\.)?xiamenair\.com/'
+      - '^([a-z0-9-]+\.)?cathaypacific\.com/'
+      - '^lufthansa\.com/'
+      - '^swiss\.com/'
+      - '^austrian\.com/'
+      - '^brusselsairlines\.com/'
+      - '^saudia\.com/'
+      - '^airfrance\.[a-z.]+/'
+      - '^klm\.[a-z.]+/'
+      - '^britishairways\.com/'
+      - '^iberia\.com/'
+      - '^emirates\.com/'
+      - '^qatarairways\.com/'
+      - '^etihad\.com/'
+      - '^turkishairlines\.com/'
+      - '^finnair\.com/'
+      - '^singaporeair\.com/'
+      - '^ana\.co\.jp/'
+      - '^jal\.co\.jp/'
+      - '^koreanair\.com/'
+      - '^thaiairways\.com/'
+      - '^united\.com/'
+      - '^delta\.com/'
+      - '^aa\.com/'
+      - '^ryanair\.com/'
+      - '^easyjet\.com/'
+      - '^vueling\.com/'
+      - '^wizzair\.com/'
+    tier2:   # meta-search, only with exact dates
+      - '^google\.[a-z.]+/travel/flights'
+      - '^skyscanner\.[a-z.]+/'
+      - '^kayak\.[a-z.]+/'
+      - '^momondo\.[a-z.]+/'
   # A price alert fires only when independently confirmed within this window: another tier 1/2
   # site, or the same site re-read by an independent extractor (never the same fare-reader twice).
   independent_extractors: [main]
@@ -90,8 +93,25 @@ reliability:
   same_source_tolerance_pct: 1    # same fare re-read on the same site
   cross_source_tolerance_pct: 5   # another tier 1/2 site
 
+# Runtime entity verification. Class ids are Wikidata items (stable identifiers, not knowledge).
+wikidata:
+  api: https://www.wikidata.org/w/api.php
+  sparql: https://query.wikidata.org/sparql
+  search_limit: 3
+  airline_classes: [Q46970]                          # airline
+  travel_classes: [Q118710708, Q114106, Q1276157]    # online travel agency, metasearch engine, travel website
+
+# How pages are read. Order is learned per source from measured outcomes (tw sources plan).
+access:
+  methods: [webfetch, browser]   # browser = rendered page via the session's browser tools, if available
+  api_adapters:                  # used only when the env var holds a key the user configured
+    serpapi: {env: SERPAPI_KEY, endpoint: "https://serpapi.com/search.json", engine: google_flights}
+  prior_success: 0.5             # assumed success rate of an untried (source, method)
+  max_plan_steps: 6
+
 # Buy/wait advisor (tw advise). Booking windows in days before departure; first match wins.
-# The windows are heuristics, not measurements: advise says so and lowers confidence on short history.
+# Booking windows are researched at runtime per route and season (tw knowledge, kind booking_window).
+# The windows below are only a generic FALLBACK, marked heuristic, used when no fresh research exists.
 advise:
   min_history: 5
   trend_days: 7
@@ -102,7 +122,8 @@ advise:
   wait_recheck_days: 7
   close_recheck_days: 3
   high_volatility_cv: 0.15     # coefficient of variation above this lowers confidence
-  windows:
+  booking_window_ttl_days: 90
+  windows:   # fallback
     - {name: long-haul peak season, haul: long, peak: true, ideal_days: [120, 240], confidence: heuristic,
        source: "rule of thumb from fare-trend studies; calibrate with your own verified history"}
     - {name: long-haul, haul: long, peak: false, ideal_days: [90, 180], confidence: heuristic,

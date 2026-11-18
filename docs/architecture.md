@@ -27,7 +27,10 @@ Move to **Standard** if bookings or payments, a paid API, multiple users or mess
 | Dossier completeness and freshness | code | `tw/dossier.py` + checklist in config |
 | Check cadence, history, thresholds, alert cooldown, suspect prices | code | `tw/watches.py`, `tw/store.py` |
 | Write the profile, with mandatory evidence | code, on the model's proposal | `tw profile set` |
-| Which sites may produce a price (tier 1 airline, tier 2 meta-search) | code, patterns in config | `tw/reliability.py` |
+| Propose candidate sources for a route (airlines operating it, travel sites, regional engines) | model, at runtime | skill §8 |
+| Decide the tier of a source (Wikidata class + official website + IATA) and cache it with TTL | code | `tw/wikidata.py`, `reliability.verify_source` |
+| Choose which (source, method) to try first | code, from measured outcomes | `tw/access.py` (`tw sources plan`) |
+| Research the booking window per route/season, with sources | model; code validates and expires it | `tw knowledge put`, `advise._window` |
 | Confirm a price alert with a second observation | code | `watches.evaluate` |
 | Buy/wait verdict, confidence, recheck date | code | `tw/advise.py` |
 | Context on the verdict (sales, surcharges, route changes, geopolitics), stated agreement or disagreement | model | skill §7 |
@@ -131,6 +134,22 @@ Date: 2026-11-18 · Status: accepted
 - **Options**: trust the model's reading of any page (simple, silent errors); paid fare API (reliable, cost and account); domain tiers in config + exact dates + second observation (chosen).
 - **Consequences**: fewer but trustworthy observations; some rounds end in `no_data`. Users extend tiers in `settings.yaml` without code changes. Revisit with a paid API per ADR-1's trigger.
 
+### ADR-6. Runtime knowledge, verified by code; static lists only as offline fallback
+Date: 2026-11-18 · Status: accepted
+- **Context**: any list of "good" sites, airlines on a route, booking windows or entry rules is right only for some destinations and only for a while. The first live round showed it: fixed tier lists missed carriers that really serve Italy–China.
+- **Principle**: code and config hold only rules, verification logic and thresholds. Knowledge is fetched at runtime, stored with provenance (source URL, date) and a TTL, and re-verified when it expires.
+- **Options**: curated lists in config (simple, perishable, destination-biased); trusting the model's judgement of a site (current, unverifiable); model proposes, code verifies against an open knowledge base (chosen: Wikidata class P31/P279*, official website P856, IATA P229).
+- **Consequences**: works for any destination; each verdict has a Wikidata link. Known gaps: entities not classified on Wikidata (e.g. Google Flights is a "website/search engine", Trip.com a "dot-com company") fall back to the offline list and are marked `verified_by: fallback`, with a 1-day TTL so verification is retried. Country variants of a brand (kayak.it vs kayak.com) are accepted as a `brand` match; a look-alike domain on the same label would also pass, accepted because candidates come from search results and every price still needs an excerpt and independent confirmation.
+- **Review trigger**: more than 30% of recorded observations `verified_by: fallback` over two weeks.
+
+### ADR-7. Adaptive access cascade with measured health
+Date: 2026-11-18 · Status: accepted
+- **Context**: live round on 0.4.0 ended 100% `no_data`: plain fetches of client-rendered meta-search pages return empty shells, and some sites put a consent wall first.
+- **Options**: hard-code "use the browser for site X" (perishable); always use the browser (slow, costly, not always available); record every attempt per (source, method) and order the next attempts by smoothed success rate (chosen).
+- **Methods**: `webfetch` (fare-reader, cheapest), `browser` (rendered page via the session's browser tools; decline non-essential cookies, fill only the search form), `api:<adapter>` (only with a key the user configured; SerpApi Google Flights implemented).
+- **Live check (2026-11-18)**: a Kayak result page for exact dates rendered real fares in the desktop browser pane (e.g. Royal Jordanian 569 €, Air China direct 891 €). Google Flights stopped at the consent page, and declining cookies failed because the pane was not on screen ("tab not drawn"). So browser access needs the desktop app window to be able to render. Whether scheduled tasks have the browser tools is not verified yet; the round passes `--browser` only when they are present.
+- **Consequences**: the system shifts by itself from methods that stop working; the cost of the browser path is paid only where it is needed.
+
 ## 8. Behaviour scenarios (manual check or model grader)
 
 | # | Input | Expected |
@@ -151,6 +170,10 @@ Date: 2026-11-18 · Status: accepted
 | 17 | User picks an option and says nothing about monitoring | Monitoring plan proposed; no watch, no task, status stays `chosen` |
 | 18 | "Yes, but only flights" | Only flight watches added with that sentence as evidence; no safety watch |
 | 19 | Resume a parked trip | Preview diff first; watches restart only after a yes |
+| 20 | New route served by an airline missing from every list | Model proposes it with IATA code; `tw sources verify` makes it tier 1 from Wikidata |
+| 21 | Wikidata down | Fallback verdict, `verified_by: fallback`, retried next day |
+| 22 | Site starts returning empty pages to webfetch | Outcomes recorded; `tw sources plan` moves it to browser/API |
+| 23 | Booking window research older than its TTL | `research_needed` from advise; fallback marked heuristic until re-researched |
 | 16 | WAIT verdict during the first 14 days | Logged (`tw verdicts`), not notified; confirmed price alerts and safety/entry changes are still notified |
 | 12 | Model finds an airline sale ending tomorrow, advisor says WAIT | Both shown: verdict + explicit disagreement with source; user decides |
 | 13 | No watch due | Round stops after `tw watch due`, no web access, no message |

@@ -69,12 +69,25 @@ You can also start with an explicit command: `/travel-radar:trip 2-3 weeks in Ch
   - drop versus the median;
   - change in safety or entry rules.
 
+## Always current: runtime discovery, code verification
+
+Travel Radar keeps no fixed list of good sites, airlines, booking windows or entry rules: they would only be right for some destinations, and only for a while.
+- **Code and config hold only rules, verification logic and thresholds.**
+- **Everything perishable is researched when it is needed**, then stored with its sources, date and an expiry:
+  - which sites are reliable;
+  - which airlines fly a route;
+  - the usual booking window for a route and season;
+  - visas and safety.
+  Once expired, it is researched again.
+- **Code verifies what the model finds.** Sources are checked on Wikidata, prices must appear in the page text, and alerts need an independent confirmation.
+- **How pages are read is learned.** Each attempt (plain fetch, rendered browser page, or an API you configured) is recorded per site. The next round tries first what has actually worked, so the system adapts when a site changes.
+
 ## Verified prices and "buy now or wait"
 
 - **Only reliable sources count.**
-  - A flight price is recorded only from an airline's own site (tier 1) or a meta-search page queried with exact dates (tier 2: Google Flights, Skyscanner, Kayak, Momondo).
+  - A flight price is recorded only from an airline's own site (tier 1) or a travel search/booking site queried with exact dates (tier 2). Which sites qualify is verified at runtime on Wikidata, not taken from a fixed list.
   - Blogs, "flights from 380€" route pages and historical averages are context, never prices.
-  - The list lives in config; add your own sites with `tier1_extra` / `tier2_extra`.
+  - The tier is decided by code from Wikidata (an airline, or an online travel agency / metasearch engine / travel website, whose official website matches the page), cached for 30 days and then re-verified. A small list in config is used only offline, and prices that rely on it are marked `verified_by: fallback`.
 - **The price must be on the page.** Every recorded price carries a verbatim excerpt of the page, and the number must appear in it. Who read it (the `fare-reader` agent or the main model) is stored for later evaluation.
 - **No alert from a single reading.** A price alert fires only when an independent second observation confirms it within 24 hours: the same price (±5%) on another reliable site, or the same fare re-read by the main model. The page reader re-reading its own result does not count. Until then the alert stays `pending_confirmation` and is re-checked.
 - **Buy or wait.** `/travel-radar:advise` gives `BUY_NOW`, `WAIT` or `WATCH_CLOSELY`, with a confidence and the reasons.
@@ -179,6 +192,7 @@ scoring:
   - Page reading runs in the plugin's `fare-reader` agent: read-only (web search and fetch only), on a cheaper model, capped per round.
   - The cheaper model is eval-gated (`evals/`). Agent model aliases are not version-pinned, so re-run the eval when they change.
   - Verifying alerts and the buy/wait message stay on the main model.
+- **Access that adapts.** Plain page reading (fare-reader) comes first; client-rendered sites are read in the desktop app's browser pane when that is available. The browser path declines non-essential cookies, fills only the search form and never logs in. An API adapter is used only if you set its key yourself, e.g. `SERPAPI_KEY` for SerpApi Google Flights. The browser pane works only while the desktop app is open and can render; some consent walls (e.g. Google) may need the window on screen.
 - **Polite browsing.** Each watch reads only a few pages per round (configurable), with no bulk scraping. Sites that block automation or need login are skipped and recorded as `no_data`.
 - **Limits:**
   - Flight prices come from web research, so sites that block automated access or require login are skipped.

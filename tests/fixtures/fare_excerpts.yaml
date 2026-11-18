@@ -40,3 +40,19 @@
   url: https://www.ceair.com/en/booking
   excerpt: "MU788 FCO-PVG 9 Jun 2027 | MU787 PVG-FCO 26 Jun 2027 | Total CNY 4,980"
   expected: {price: 4980, currency: CNY, depart: 2027-06-09, return: 2027-06-26, carrier: China Eastern Airlines, stops: 0}
+# Rendered pages (text read from the browser pane after JavaScript ran).
+- id: rendered-kayak-1
+  render: browser
+  url: https://www.kayak.it/flights/ROM-BJS/2027-06-03/2027-06-20
+  excerpt: "14:10 FCO 18 h 45 min 1 scalo 14:55+1 PEK 03:15 PEK 15 h 55 min 1 scalo 13:10 FCO Royal Jordanian 569 €"
+  expected: {price: 569, currency: EUR, depart: 2027-06-03, return: 2027-06-20, carrier: Royal Jordanian, stops: 1}
+- id: rendered-kayak-2
+  render: browser
+  url: https://www.kayak.it/flights/ROM-BJS/2027-06-03/2027-06-20
+  excerpt: "Diretto più economico 20:30 FCO 10 h 15 min diretto 12:45+1 PEK 13:10 PEK 11 h 20 min diretto 18:30 FCO Air China 891 €"
+  expected: {price: 891, currency: EUR, depart: 2027-06-03, return: 2027-06-20, carrier: Air China, stops: 0}
+- id: rendered-kayak-3
+  render: browser
+  url: https://www.kayak.it/flights/ROM-BJS/2027-06-03/2027-06-20
+  excerpt: "16:40 FCO 13 h 05 min 1 scalo 11:45+1 PEK 13:10 PEK 11 h 20 min diretto 18:30 FCO Lufthansa, Air China 745 €"
+  expected: {price: 745, currency: EUR, depart: 2027-06-03, return: 2027-06-20, carrier: "Lufthansa, Air China", stops: 1}

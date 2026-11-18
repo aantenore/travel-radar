@@ -25,7 +25,10 @@ User data lives in the data home (`$TRAVEL_RADAR_HOME`, default `~/.travel-radar
 | Trip lifecycle | `tw trip list | set <id> --to <status> [--option a] | park <id> --reason "..." [--until DATE] | resume <id> | done <id>` |
 | Idea inbox | `tw idea add "<place or wish>" [--best-months 4,5] | list | checked <id> | promote <id> --trip <trip-id> | drop <id>` |
 | Buy or wait | `tw advise --watch <id>` / history: `tw verdicts --watch <id>` |
-| Is this URL a valid price source? | `tw source-tier <url>` (1 airline, 2 meta-search, 0 context only) |
+| Verify a price source (runtime, cached with TTL) | `tw sources verify --url <url> [--name "<entity>"] [--iata <code>]` |
+| Attempt plan for a watch (learned order) | `tw sources plan --watch <id> --candidates <url1,url2,...> [--browser]` |
+| Record how an access attempt went | `tw sources record-access --domain <d> --method webfetch|browser|api:<name> --outcome ok|no_data|blocked|error` |
+| Runtime knowledge (booking windows, ...) | `tw knowledge put --kind booking_window --key <key> --value '{"ideal_days":[90,150]}' --source <url> --ttl-days 90` / `get` / `stale` |
 | Export | `tw export ics <trip>` / `tw export brief <trip>` (written next to the trip unless `--out`) |
 
 JSON error with `details` → fix the named file or value and run again; never work around validation.
@@ -140,7 +143,12 @@ Unattended run: no user to learn from. Forbidden: `tw profile set`, `tw trip` st
 Keep it cheap:
 1. `tw watch due`. If `nothing_due` is true → stop immediately, no message, no web access.
 2. Watches in `invalid` → mention them in the notification, do not fix them. Watches with `deferred` wait for the next run.
-3. For each watch with `fare_reader: true`, call the plugin's **fare-reader** subagent (read-only, cheaper model) with the watch YAML and the page budget `research.max_fetches_per_watch`. Never call it more than once per watch per run. For each fare it returns, on the main model: `tw watch record --watch <id> --price-eur <EUR> --source <domain> --url <url> --depart <d> --return <d> --carrier <c> --stops <n> --excerpt "<excerpt>" --extractor fare-reader` (add `--excerpt-price <page price>` and the rate's source in `--note` when the page currency is not EUR). The CLI rejects untiered sources, missing or out-of-window dates and prices absent from the excerpt; drop those. Then `tw watch checked --watch <id> --status ok|no_data|error --note "<reason>"`.
+3. For each watch with `fare_reader: true` (section 8 explains sources and methods):
+   a. Candidates: the sources discovered for this route at runtime (airlines operating it, travel search/booking sites, regional engines), kept from earlier rounds or researched now. `tw sources verify` any candidate whose verdict is missing or expired.
+   b. `tw sources plan --watch <id> --candidates <...> [--browser if browser tools are available in this session]` → follow the steps in order until enough fares or the page budget is spent.
+   c. `webfetch` steps → the plugin's **fare-reader** subagent (read-only, cheaper model), at most once per watch per run, given those steps. `browser` steps → the main model with the browser tools: decline non-essential cookies, fill only the search form (route and dates), never log in or enter personal data. `api:<name>` steps → `tw sources api --adapter <name> --watch <id> --depart <d> --return <d>`.
+   d. After each attempt: `tw sources record-access --domain <d> --method <m> --outcome ok|no_data|blocked|error --note "<why>"`.
+   For each fare obtained, on the main model: `tw watch record --watch <id> --price-eur <EUR> --source <domain> --url <url> --depart <d> --return <d> --carrier <c> --stops <n> --excerpt "<excerpt>" --extractor fare-reader|main|api:<name>` (add `--excerpt-price <page price>` and the rate's source in `--note` when the page currency is not EUR). The CLI rejects sources not verified at runtime (or expired), untiered sources, missing or out-of-window dates and prices absent from the excerpt; drop those. Then `tw watch checked --watch <id> --status ok|no_data|error --note "<reason>"`.
 4. safety watches: update the dossier items `safety` and `entry`; status change → alert. weather watches: `tw forecast`, summarize anomalies. Always `tw watch checked`.
 5. `tw watch evaluate`, on the main model:
    - `pending_confirmation` → confirm independently: either open the same fare yourself and record it with `--extractor main`, or find it on another tier 1/2 site. Never ask fare-reader to re-read it. Then evaluate again; still unconfirmed → no notification.
@@ -166,7 +174,7 @@ Keep it cheap:
 - Present it with its reasons and confidence. Low confidence or few verified observations → say so plainly.
 - You may add context found online now (airline sales, fuel surcharges, route or schedule changes, visa or geopolitical news), with sources. If that context points the other way, say explicitly "I disagree with the verdict because…" with the sources; never silently replace it.
 - **"I'll message you"**: `tw advise` stores the `recheck_date` of a WAIT or WATCH_CLOSELY verdict. On that date `tw watch due` marks the watch due (`advise_recheck`) and the monitoring round refreshes prices, re-runs advise and notifies the new verdict. Tell the user the date. No scheduled task is created for this: it needs only the monitoring task of section 3 (if the app was closed, it runs at the next launch).
-- The booking windows are heuristics (`window_confidence`). With history shorter than `advise.min_history` the confidence is low: say it plainly.
+- Booking window: if the output has `research_needed`, research the usual booking window for that route and season now (fare studies, airline sale calendars, recent data; at least one source), store it with `tw knowledge put --kind booking_window --key <research_needed.key> --value '{"ideal_days":[lo,hi]}' --source <url> --ttl-days <advise.booking_window_ttl_days>` and run `tw advise` again. Until then the window is the generic `heuristic` fallback: say so. With history shorter than `advise.min_history` the confidence is low: say it plainly.
 - **How to buy** (when BUY_NOW or the user decides):
   - If the airline's own site is equal or within a few percent of the meta-search price, book direct with the airline: changes and refunds are easier.
   - While entry rules or dates are uncertain, prefer a changeable or refundable fare, and state the price difference.
@@ -174,12 +182,14 @@ Keep it cheap:
   - Pay with a method that offers protection; keep the booking confirmation.
   - The user books. Never book, log in or enter payment data.
 
-## 8. Price sources and scraping
+## 8. Price sources and access
 
-- A flight price observation must come from a tier 1 (airline official site) or tier 2 (meta-search page queried with exact dates) source, per `tw source-tier <url>`, and carry exact `--depart` and `--return` dates inside the watch window. Blog posts, "flights from X€" route pages, deal newsletters and historical averages are context only: use them to decide where to look, never record them.
-- Respect `research.max_fetches_per_watch` and `research.max_subagent_calls_per_run` (enforced by `tw watch due`). No bulk scraping, no automated pagination through result lists.
-- Sites that block automated access, show a captcha or require login → skip, record `no_data` with the reason, try another tier 1/2 source.
-- If a browser tool is available it may be used to read a page that needs JavaScript; never to log in or to submit forms beyond the search itself.
+Always current: which sites are reliable, which airlines fly a route, booking windows and entry rules are **discovered at runtime and verified by code**, never taken from a fixed list.
+- Discover candidates for the route now: airlines operating it (with IATA code), travel search/booking sites, regional engines popular in the origin or destination country.
+- `tw sources verify --url <url> --name "<entity>" [--iata <code>]` decides the tier from Wikidata: airline with a matching official website → tier 1; online travel agency / metasearch / travel website with a matching official website → tier 2; otherwise context only. Verdicts are cached with a TTL and re-verified when they expire. If Wikidata is unreachable or does not classify a site, the offline fallback list in config is used and observations are marked `verified_by: fallback`: mention it when it matters.
+- Only tier 1/2 pages with exact `--depart`/`--return` dates inside the watch window become prices. Blog posts, "flights from X" route pages, newsletters and averages are context only.
+- Access methods are tried in the order `tw sources plan` returns, learned from recorded outcomes: client-rendered pages that return empty shells to `webfetch` will drift to `browser` or an API adapter automatically. API adapters run only if the user set the key in their environment; never suggest creating accounts.
+- Respect `research.max_fetches_per_watch` and `research.max_subagent_calls_per_run`. No bulk scraping. Captcha, login walls or blocked access → record `blocked`, move on.
 
 ## Rules
 

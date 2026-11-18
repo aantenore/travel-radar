@@ -44,8 +44,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("outputs")
     ap.add_argument("--threshold", type=float, default=0.95)
+    ap.add_argument("--render", choices=["static", "browser", "all"], default="all",
+                    help="score only plain-fetch pages, only rendered (browser) pages, or all")
     a = ap.parse_args()
-    res = score(yaml.safe_load(FIXTURES.read_text()), json.loads(Path(a.outputs).read_text()))
+    fixtures = yaml.safe_load(FIXTURES.read_text())
+    if a.render != "all":
+        fixtures = [c for c in fixtures if c.get("render", "static") == a.render]
+    res = score(fixtures, json.loads(Path(a.outputs).read_text()))
+    res["render"] = a.render
     res["threshold"] = a.threshold
     res["adopt"] = res["exact_match_rate"] >= a.threshold
     json.dump(res, sys.stdout, indent=2)

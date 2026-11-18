@@ -21,6 +21,13 @@ CREATE TABLE IF NOT EXISTS verdicts (
   id INTEGER PRIMARY KEY, watch_id TEXT NOT NULL, ts TEXT NOT NULL, verdict TEXT NOT NULL,
   confidence TEXT NOT NULL, price_eur REAL, recheck_date TEXT, shadow INTEGER NOT NULL, reasons TEXT);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS knowledge (
+  kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, sources TEXT NOT NULL,
+  fetched TEXT NOT NULL, ttl_days INTEGER NOT NULL, verified_by TEXT NOT NULL, PRIMARY KEY (kind, key));
+CREATE TABLE IF NOT EXISTS access_stats (
+  domain TEXT NOT NULL, method TEXT NOT NULL, ok INTEGER NOT NULL DEFAULT 0, no_data INTEGER NOT NULL DEFAULT 0,
+  blocked INTEGER NOT NULL DEFAULT 0, error INTEGER NOT NULL DEFAULT 0, last_success TEXT, last_attempt TEXT,
+  last_note TEXT, PRIMARY KEY (domain, method));
 CREATE INDEX IF NOT EXISTS ix_obs ON observations(watch_id, ts);
 CREATE INDEX IF NOT EXISTS ix_chk ON checks(watch_id, ts);
 """
@@ -43,7 +50,7 @@ def connect(db_path):
 def _migrate(con):
     """Add columns introduced after 0.2.0 to existing databases; record the first-use date."""
     cols = {r["name"] for r in con.execute("PRAGMA table_info(observations)")}
-    for name, typ in (("tier", "INTEGER"), ("excerpt", "TEXT"), ("extractor", "TEXT")):
+    for name, typ in (("tier", "INTEGER"), ("excerpt", "TEXT"), ("extractor", "TEXT"), ("verified_by", "TEXT")):
         if name not in cols:
             con.execute(f"ALTER TABLE observations ADD COLUMN {name} {typ}")
     con.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('first_use', ?)", (now_iso(),))
@@ -51,14 +58,15 @@ def _migrate(con):
 
 
 def add_observation(con, watch_id, price_eur, source, url, depart=None, return_date=None,
-                    carrier=None, stops=None, note=None, ts=None, tier=None, excerpt=None, extractor=None):
+                    carrier=None, stops=None, note=None, ts=None, tier=None, excerpt=None, extractor=None,
+                    verified_by=None):
     if not url:
         raise ValueError("source url is required")
     con.execute(
         "INSERT INTO observations(watch_id, ts, price_eur, depart, return_date, carrier, stops, source, url, note,"
-        " tier, excerpt, extractor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " tier, excerpt, extractor, verified_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (watch_id, ts or now_iso(), price_eur, depart, return_date, carrier, stops, source, url, note,
-         tier, excerpt, extractor))
+         tier, excerpt, extractor, verified_by))
     con.commit()
 
 

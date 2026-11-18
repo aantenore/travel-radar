@@ -1,8 +1,9 @@
 """Source reliability tiers and validation of flight price observations.
 
-Tier 1 = airline official sites, tier 2 = meta-search queried with exact dates.
-Anything else is context only and cannot become a price observation.
-Patterns live in config (`reliability`), matched against host+path without "www.".
+Tier 1 = airline official site, tier 2 = travel search/booking site queried with exact dates,
+anything else = context only. The authority is runtime verification (Wikidata, cached with a
+TTL in the knowledge store). The regex lists in config are an offline fallback only, and
+observations relying on them are marked `verified_by: fallback`.
 """
 import re
 from datetime import date
@@ -20,13 +21,44 @@ def _key(url):
 
 
 def tier(cfg, url):
+    """Offline fallback tier from the config regex lists (never the authority)."""
     r = cfg["reliability"]
+    fb = r.get("fallback", {})
     k = _key(url)
-    if any(re.search(p, k) for p in r.get("tier1", []) + r.get("tier1_extra", [])):
+    if any(re.search(p, k) for p in fb.get("tier1", []) + r.get("tier1_extra", [])):
         return 1
-    if any(re.search(p, k) for p in r.get("tier2", []) + r.get("tier2_extra", [])):
+    if any(re.search(p, k) for p in fb.get("tier2", []) + r.get("tier2_extra", [])):
         return 2
     return 0
+
+
+def verify_source(cfg, con, url, name=None, iata=None, now=None):
+    """Verify a source at runtime and cache the verdict with provenance and TTL."""
+    from . import knowledge, sources, wikidata
+    domain = wikidata.registrable(host(url))
+    r = cfg["reliability"]
+    try:
+        v = wikidata.verify(cfg, domain, name, iata)
+        prov = [f"https://www.wikidata.org/wiki/{v['qid']}"] if v["qid"] else [cfg["wikidata"]["api"]]
+        verified_by, ttl = "wikidata", r["verify_ttl_days"]
+        if v["tier"] == 0 and tier(cfg, url):
+            v.update(tier=tier(cfg, url), note="not classified as airline/travel site on Wikidata; offline fallback list used")
+            verified_by, ttl = "fallback", r["fallback_ttl_days"]
+    except sources.SourceError as e:
+        v = {"domain": domain, "tier": tier(cfg, url), "note": f"Wikidata unreachable: {e}"}
+        prov, verified_by, ttl = ["config:reliability.fallback"], "fallback", r["fallback_ttl_days"]
+    value = {k: v.get(k) for k in ("tier", "qid", "label", "match", "note")}
+    knowledge.put(con, "source", domain, value, prov, ttl, verified_by, now)
+    return {"domain": domain, **value, "verified_by": verified_by, "ttl_days": ttl}
+
+
+def resolve(cfg, con, url, now=None):
+    """Cached runtime verdict for the URL's domain: {tier, verified_by} or None if missing/expired."""
+    from . import knowledge, wikidata
+    k = knowledge.get(con, "source", wikidata.registrable(host(url)), now)
+    if not k or not k["fresh"]:
+        return None
+    return {"tier": k["value"]["tier"], "verified_by": k["verified_by"]}
 
 
 def independent(cfg, a, b):
@@ -77,10 +109,12 @@ def price_in_excerpt(price, excerpt):
     return any(abs(v - float(price)) < 0.01 for tok in tokens for v in _readings(tok))
 
 
-def check_flight_observation(cfg, watch, url, depart, return_date, price=None, excerpt=None, extractor=None):
+def check_flight_observation(cfg, watch, url, depart, return_date, price=None, excerpt=None, extractor=None,
+                             source_tier=None):
     """Return the source tier, or raise with the reason the observation is not acceptable.
-    `price` is the number as shown on the page (local currency if converted)."""
-    t = tier(cfg, url)
+    `price` is the number as shown on the page (local currency if converted).
+    `source_tier` comes from `resolve`; without it the offline fallback list is used."""
+    t = tier(cfg, url) if source_tier is None else source_tier
     errors = []
     if not extractor:
         errors.append("--extractor is required (fare-reader or main)")

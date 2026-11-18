@@ -7,14 +7,27 @@ lowers confidence instead of faking certainty.
 import statistics
 from datetime import date, datetime, timedelta, timezone
 
-from . import schema, store
+from . import knowledge, schema, store
 
 
-def _window(cfg, w):
+def window_key(w):
+    """Knowledge key of the booking window for this route and season."""
+    route = "/".join(sorted(w.get("origin") or [])) + ">" + "/".join(sorted(w.get("destination") or []))
+    return f"{route}:{'peak' if w.get('peak') else 'offpeak'}"
+
+
+def _window(cfg, con, w, now):
+    """Researched window for this route/season if fresh; otherwise the generic fallback (heuristic)."""
+    k = knowledge.get(con, "booking_window", window_key(w), now) if con is not None else None
+    if k and k["fresh"]:
+        return {"name": f"researched for {window_key(w)}", "ideal_days": k["value"]["ideal_days"],
+                "confidence": "researched", "source": ", ".join(k["sources"]), "fetched": k["fetched"]}, None
     for rule in cfg["advise"]["windows"]:
         if rule["haul"] == w.get("haul", "long") and bool(rule["peak"]) == bool(w.get("peak", False)):
-            return rule
-    raise schema.ValidationError([f"no advisor window for haul={w.get('haul')} peak={w.get('peak')}"])
+            need = {"kind": "booking_window", "key": window_key(w),
+                    "why": "expired" if k else "no runtime research yet"}
+            return rule, need
+    raise schema.ValidationError([f"no fallback window for haul={w.get('haul')} peak={w.get('peak')}"])
 
 
 def _depart(w):
@@ -41,14 +54,15 @@ def advise(cfg, con, w, now=None):
     c = cfg["advise"]
     today = now.date()
     days = (_depart(w) - today).days
-    win = _window(cfg, w)
+    win, research_needed = _window(cfg, con, w, now)
     lo, hi = win["ideal_days"]
     position = "early" if days > hi else ("late" if days < lo else "in_window")
     obs = [o for o in store.observations(con, w["id"]) if o.get("tier") in (1, 2)]
     reasons = [f"{days} days to departure; booking window '{win['name']}' is {lo}-{hi} days before ({position})",
                f"booking window is a {win.get('confidence', 'heuristic')}: {win.get('source', 'no source given')}"]
     out = {"watch": w["id"], "days_to_departure": days, "window": win["name"], "position": position,
-           "window_confidence": win.get("confidence", "heuristic"), "verified_observations": len(obs)}
+           "window_confidence": win.get("confidence", "heuristic"), "verified_observations": len(obs),
+           "research_needed": research_needed}
 
     def verdict(v, confidence, recheck=None):
         out.update(verdict=v, confidence=confidence, reasons=reasons,
@@ -79,6 +93,8 @@ def advise(cfg, con, w, now=None):
         reasons.append(f"{'under' if under else 'over'} budget {budget}€")
 
     enough = len(obs) >= c["min_history"]
+    if len(obs) >= 2 * c["min_history"]:
+        reasons.append("your own verified history is long enough to drive the price-level judgement; the window only informs timing")
     if not enough:
         reasons.append(f"only {len(obs)} verified observations (< {c['min_history']}): history too short to judge the price level")
     confidence = "high" if len(obs) >= 2 * c["min_history"] else ("medium" if enough else "low")

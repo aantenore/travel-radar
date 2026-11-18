@@ -14,7 +14,7 @@
 Question: can the fare-reader agent run on a cheaper model?
 
 1. For each case in `tests/fixtures/fare_excerpts.yaml`, give the excerpt to the extractor under test (the fare-reader agent with the candidate `model:`) and save its JSON answer under the case id in `outputs.json`.
-2. Run `python3 evals/score_extraction.py outputs.json --threshold 0.95`.
+2. Run `python3 evals/score_extraction.py outputs.json --threshold 0.95` (add `--render browser` or `--render static` to score rendered pages or plain fetches separately; rendered excerpts come from the browser pane).
 3. Adopt the candidate model only if `exact_match_rate` is ≥ 0.95, then record the date, model and rate in `docs/architecture.md` (ADR-3).
 
 **Model aliases are not pinned.** `model: sonnet` or `model: haiku` in an agent file is an alias that follows the current model version. Re-run this eval when the alias moves to a new model, and whenever the fixtures grow.

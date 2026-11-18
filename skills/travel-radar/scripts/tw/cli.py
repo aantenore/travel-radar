@@ -5,7 +5,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import advise as advise_mod, config, dossier, export, reliability, ideas, profile as profile_mod, schema, scoring, sources, store, trips, watches
+from . import access, advise as advise_mod, config, knowledge, dossier, export, reliability, ideas, profile as profile_mod, schema, scoring, sources, store, trips, watches
 
 
 def _out(obj):
@@ -101,8 +101,31 @@ def _parser():
     ad.add_argument("--watch", required=True)
     vh = sub.add_parser("verdicts", help="logged buy/wait verdicts for a watch")
     vh.add_argument("--watch", required=True)
-    sr = sub.add_parser("source-tier", help="tier of a URL: 1 airline, 2 meta-search, 0 context only")
+    sr = sub.add_parser("source-tier", help="OFFLINE fallback tier of a URL (the authority is `tw sources verify`)")
     sr.add_argument("url")
+
+    ssub = sub.add_parser("sources", help="runtime source verification and access cascade").add_subparsers(dest="scmd", required=True)
+    sv = ssub.add_parser("verify", help="verify a source on Wikidata (cached with TTL)")
+    sv.add_argument("--url", required=True); sv.add_argument("--name", help="entity name, e.g. the airline")
+    sv.add_argument("--iata", help="airline IATA code, if an airline")
+    sp = ssub.add_parser("plan", help="ordered (source, method) attempts for a watch")
+    sp.add_argument("--watch", required=True); sp.add_argument("--candidates", required=True, help="comma-separated URLs or domains")
+    sp.add_argument("--browser", action="store_true", help="browser tools are available in this session")
+    sa = ssub.add_parser("record-access")
+    sa.add_argument("--domain", required=True); sa.add_argument("--method", required=True)
+    sa.add_argument("--outcome", required=True, choices=list(access.OUTCOMES)); sa.add_argument("--note")
+    ssub.add_parser("stats")
+    sapi = ssub.add_parser("api", help="fetch fares through a configured API adapter")
+    sapi.add_argument("--adapter", required=True); sapi.add_argument("--watch", required=True)
+    sapi.add_argument("--depart", required=True); sapi.add_argument("--return", dest="return_date")
+
+    ksub = sub.add_parser("knowledge", help="runtime knowledge with sources and TTL").add_subparsers(dest="kcmd", required=True)
+    kp = ksub.add_parser("put")
+    kp.add_argument("--kind", required=True); kp.add_argument("--key", required=True)
+    kp.add_argument("--value", required=True, help="JSON"); kp.add_argument("--source", action="append", required=True)
+    kp.add_argument("--ttl-days", type=int, required=True)
+    kg = ksub.add_parser("get"); kg.add_argument("--kind", required=True); kg.add_argument("--key", required=True)
+    ksub.add_parser("stale")
     return p
 
 
@@ -171,6 +194,32 @@ def _run(a, cfg):
         res["notify"] = not shadow
         store.log_verdict(con, res, shadow)
         return _out(res)
+    if a.cmd == "sources":
+        if a.scmd == "verify":
+            return _out(reliability.verify_source(cfg, con, a.url, a.name, a.iata))
+        if a.scmd == "plan":
+            _watch(cfg, a.watch)
+            cands, unverified = [], []
+            for c in [x.strip() for x in a.candidates.split(",") if x.strip()]:
+                r = reliability.resolve(cfg, con, c)
+                if r is None:
+                    unverified.append(c)
+                elif r["tier"] in (1, 2):
+                    cands.append((reliability.host(c), r["tier"]))
+            return _out({**access.plan(cfg, con, cands, a.browser), "verify_first": unverified})
+        if a.scmd == "record-access":
+            return _out(access.record(con, a.domain, a.method, a.outcome, a.note))
+        if a.scmd == "stats":
+            return _out(access.stats(con))
+        if a.adapter != "serpapi":
+            raise ValueError(f"unknown adapter {a.adapter}")
+        return _out(access.serpapi_fares(cfg, _watch(cfg, a.watch), a.depart, a.return_date))
+    if a.cmd == "knowledge":
+        if a.kcmd == "put":
+            return _out(knowledge.put(con, a.kind, a.key, json.loads(a.value), a.source, a.ttl_days))
+        if a.kcmd == "get":
+            return _out(knowledge.get(con, a.kind, a.key))
+        return _out(knowledge.stale(con))
     if a.cmd == "verdicts":
         return _out(store.verdicts(con, a.watch))
     if a.cmd == "trip":
@@ -218,13 +267,20 @@ def _run(a, cfg):
     if a.wcmd == "record":
         w = _watch(cfg, a.watch)
         tier = None
+        verified_by = None
         if w.get("kind") in ("flight", "deal"):
+            v = reliability.resolve(cfg, con, a.url)
+            if v is None:
+                raise schema.ValidationError([f"source {reliability.host(a.url)} not verified or verification expired: "
+                                              f"run `tw sources verify --url {a.url} [--name ...] [--iata ...]` first"])
             shown = a.excerpt_price if a.excerpt_price is not None else a.price_eur
             tier = reliability.check_flight_observation(cfg, w, a.url, a.depart, a.return_date,
-                                                        shown, a.excerpt, a.extractor)
+                                                        shown, a.excerpt, a.extractor, source_tier=v["tier"])
+            verified_by = v["verified_by"]
         store.add_observation(con, a.watch, a.price_eur, a.source, a.url, a.depart, a.return_date,
-                              a.carrier, a.stops, a.note, tier=tier, excerpt=a.excerpt, extractor=a.extractor)
-        return _out({"recorded": a.watch, "price_eur": a.price_eur, "tier": tier})
+                              a.carrier, a.stops, a.note, tier=tier, excerpt=a.excerpt, extractor=a.extractor,
+                              verified_by=verified_by)
+        return _out({"recorded": a.watch, "price_eur": a.price_eur, "tier": tier, "verified_by": verified_by})
     if a.wcmd == "checked":
         _watch(cfg, a.watch)
         store.add_check(con, a.watch, a.status, a.note)
