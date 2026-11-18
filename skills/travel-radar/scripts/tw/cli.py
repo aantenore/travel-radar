@@ -107,6 +107,7 @@ def _parser():
     r.add_argument("--excerpt", help="verbatim page text that shows the price")
     r.add_argument("--extractor", help="who read the page: fare-reader or main")
     r.add_argument("--excerpt-price", type=float, help="price as shown on the page, if not in EUR")
+    r.add_argument("--itinerary", help="itinerary JSON (or path to a .json/.yaml file): segments, layovers, total_min per direction")
     r.add_argument("--provisional", action="store_true",
                    help="the fare looks unpublished/placeholder (e.g. full fare far ahead): kept, but ignored by advise and alerts")
     ck = wsub.add_parser("checked")
@@ -115,6 +116,8 @@ def _parser():
     ev = wsub.add_parser("evaluate"); ev.add_argument("--watch")
     rp = wsub.add_parser("report"); rp.add_argument("--watch")
 
+    it = sub.add_parser("itineraries", help="rank recorded itineraries against your flight preferences")
+    it.add_argument("--watch", required=True); it.add_argument("--days", type=int, default=7)
     ad = sub.add_parser("advise", help="buy/wait verdict for a flight watch")
     ad.add_argument("--watch", required=True)
     vh = sub.add_parser("verdicts", help="logged buy/wait verdicts for a watch")
@@ -134,9 +137,13 @@ def _parser():
     sp = ssub.add_parser("plan", help="ordered (source, method) attempts for a watch")
     sp.add_argument("--watch", required=True); sp.add_argument("--candidates", required=True, help="comma-separated URLs or domains")
     sp.add_argument("--browser", action="store_true", help="browser tools are available in this session")
+    sp.add_argument("--attended", action="store_true", help="the user is present and can solve a challenge themselves")
     sa = ssub.add_parser("record-access")
     sa.add_argument("--domain", required=True); sa.add_argument("--method", required=True)
     sa.add_argument("--outcome", required=True, choices=list(access.OUTCOMES)); sa.add_argument("--note")
+    sa.add_argument("--challenge", action="store_true", help="with blocked: an anti-bot / CAPTCHA page was shown")
+    sch = ssub.add_parser("check-page", help="detect an anti-bot / CAPTCHA page from its text (never solves it)")
+    sch.add_argument("--text-file", required=True)
     ssub.add_parser("stats")
     sapi = ssub.add_parser("api", help="fetch fares through a configured API adapter")
     sapi.add_argument("--adapter", required=True); sapi.add_argument("--watch", required=True)
@@ -220,6 +227,16 @@ def _run(a, cfg):
         return _out({"saved": change})
 
     con = store.connect(config.path(cfg, "db"))
+    if a.cmd == "itineraries":
+        from . import itinerary as itin_mod
+        w = _watch(cfg, a.watch)
+        cut = datetime.now(timezone.utc) - timedelta(days=a.days)
+        rows = [{"price_eur": o["price_eur"], "url": o["url"], "source": o["source"], "ts": o["ts"],
+                 "tier": o["tier"], "itinerary": json.loads(o["itinerary"])}
+                for o in store.observations(con, w["id"]) if o.get("itinerary") and datetime.fromisoformat(o["ts"]) >= cut]
+        if not rows:
+            return _out({"watch": w["id"], "ranked": [], "note": "no itineraries recorded in the period"})
+        return _out({"watch": w["id"], **itin_mod.rank(cfg, config.profile(cfg), rows)})
     if a.cmd == "advise":
         w = _watch(cfg, a.watch)
         res = advise_mod.advise(cfg, con, w)
@@ -247,9 +264,14 @@ def _run(a, cfg):
                     unverified.append(c)
                 elif r["tier"] in (1, 2):
                     cands.append((reliability.host(c), r["tier"]))
-            return _out({**access.plan(cfg, con, cands, a.browser), "verify_first": unverified})
+            return _out({**access.plan(cfg, con, cands, a.browser, a.attended), "verify_first": unverified})
         if a.scmd == "record-access":
-            return _out(access.record(con, a.domain, a.method, a.outcome, a.note))
+            return _out(access.record(con, a.domain, a.method, a.outcome, a.note, challenge=a.challenge))
+        if a.scmd == "check-page":
+            m = access.detect_challenge(cfg, Path(a.text_file).expanduser().read_text(errors="ignore"))
+            return _out({"challenge": bool(m), "marker": m,
+                         "next": ("attended: ask the user to solve it in the browser, never touch it; "
+                                  "unattended: record blocked --challenge and move on") if m else "read the results"})
         if a.scmd == "stats":
             return _out(access.stats(con))
         if a.adapter != "serpapi":
@@ -337,9 +359,15 @@ def _run(a, cfg):
                                                         shown, a.excerpt, a.extractor, source_tier=v["tier"])
             verified_by = v["verified_by"]
         status = reliability.fare_status(cfg, w, a.depart, a.provisional) if a.depart else None
+        itin = None
+        if a.itinerary:
+            from . import itinerary as itin_mod
+            raw = a.itinerary.strip()
+            data = json.loads(raw) if raw.startswith("{") else config.load_yaml(Path(raw).expanduser())
+            itin = itin_mod.validate(cfg, data, a.depart, a.return_date)
         store.add_observation(con, a.watch, a.price_eur, a.source, a.url, a.depart, a.return_date,
                               a.carrier, a.stops, a.note, tier=tier, excerpt=a.excerpt, extractor=a.extractor,
-                              verified_by=verified_by, fare_status=status)
+                              verified_by=verified_by, fare_status=status, itinerary=itin)
         return _out({"recorded": a.watch, "price_eur": a.price_eur, "tier": tier, "verified_by": verified_by,
                      "fare_status": status, **({"note": "provisional fare: kept for reference, ignored by advise and alerts"}
                                                if status == "provisional" else {})})

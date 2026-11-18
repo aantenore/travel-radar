@@ -49,7 +49,7 @@ def _trend(obs, now, days):
     return round(100 * (statistics.median(recent) - before) / before, 1)
 
 
-def advise(cfg, con, w, now=None):
+def advise(cfg, con, w, now=None, profile=None):
     now = now or datetime.now(timezone.utc)
     c = cfg["advise"]
     today = now.date()
@@ -57,7 +57,9 @@ def advise(cfg, con, w, now=None):
     win, research_needed = _window(cfg, con, w, now)
     lo, hi = win["ideal_days"]
     position = "early" if days > hi else ("late" if days < lo else "in_window")
+    from . import config, itinerary
     obs = [o for o in store.observations(con, w["id"]) if o.get("tier") in (1, 2)]
+    obs, fit = itinerary.fit_filter(cfg, profile if profile is not None else config.profile(cfg), w, obs)
     n_prov = store.provisional_count(con, w["id"])
     reasons = [f"{days} days to departure; booking window '{win['name']}' is {lo}-{hi} days before ({position})",
                f"booking window is a {win.get('confidence', 'heuristic')}: {win.get('source', 'no source given')}"]
@@ -70,6 +72,9 @@ def advise(cfg, con, w, now=None):
                    recheck_date=recheck.isoformat() if recheck else None)
         return out
 
+    if fit["excluded_conflicts"] or fit["excluded_unknown"]:
+        reasons.append(f"only fares that fit your flight preferences count: {fit['excluded_conflicts']} excluded for "
+                       f"layovers/stops/time, {fit['excluded_unknown']} without itinerary details")
     if n_prov:
         reasons.append(f"{n_prov} provisional fare(s) ignored (departure beyond the published-fare horizon or flagged)")
     if days < 0:

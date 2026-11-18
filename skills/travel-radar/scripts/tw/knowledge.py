@@ -16,6 +16,10 @@ def _validate(kind, value):
         d = value.get("ideal_days")
         if not (isinstance(d, list) and len(d) == 2 and all(isinstance(x, int) for x in d) and 1 <= d[0] < d[1] <= 365):
             e.append("booking_window.ideal_days must be [min, max] days before departure, 1-365, min < max")
+    elif kind == "airport_group":
+        ap = value.get("airports")
+        if not (isinstance(ap, list) and ap and all(isinstance(x, str) and len(x) == 3 and x.isalpha() for x in ap)):
+            e.append("airport_group.airports must be a list of 3-letter IATA codes")
     elif kind == "source":
         if value.get("tier") not in (0, 1, 2):
             e.append("source.tier must be 0, 1 or 2")

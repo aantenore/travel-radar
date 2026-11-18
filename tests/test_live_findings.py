@@ -75,24 +75,41 @@ class GeocodingTest(unittest.TestCase):
 
 
 class GovernmentSitesTest(unittest.TestCase):
-    def test_parent_hosts(self):
-        self.assertEqual(wikidata.parent_hosts("adelaide.china-consulate.gov.cn", 3), ["china-consulate.gov.cn", "gov.cn"])
+    """Parent inheritance never crosses the registrable domain (security review of 0.9.0)."""
+
+    def test_parent_hosts_stay_inside_registrable_domain(self):
+        self.assertEqual(wikidata.parent_hosts("consolato.roma.esteri.it", 3), ["roma.esteri.it", "esteri.it"])
+        self.assertEqual(wikidata.parent_hosts("adelaide.china-consulate.gov.cn", 3), ["china-consulate.gov.cn"])
         self.assertEqual(wikidata.parent_hosts("www.esteri.it", 3), [])
 
-    def test_subdomain_inherits_verified_government_parent(self):
-        ents = {"gov.cn": {"Q59261": {"label": "State Council", "sites": {"https://www.gov.cn"}, "airline": False,
+    def test_subdomain_inherits_only_from_its_own_registrable_parent(self):
+        ents = {"esteri.it": {"Q1": {"label": "Ministry", "sites": {"https://www.esteri.it"}, "airline": False,
+                                     "travel": False, "gov": True, "description": ""}},
+                "gov.cn": {"Q59261": {"label": "State Council", "sites": {"https://www.gov.cn"}, "airline": False,
                                       "travel": False, "gov": True, "description": ""}}}
         with mock.patch.object(wikidata, "by_site", lambda cfg, d: [d]), \
              mock.patch.object(wikidata, "describe", lambda cfg, q: ents.get(q[0], {}) if q else {}):
-            self.assertEqual(wikidata.government_parent(CFG, "adelaide.china-consulate.gov.cn")["parent"], "gov.cn")
-            self.assertIsNone(wikidata.government_parent(CFG, "travel.fake-gov-cn.com"))
+            self.assertEqual(wikidata.government_parent(CFG, "consolato.esteri.it")["parent"], "esteri.it")
+            self.assertIsNone(wikidata.government_parent(CFG, "adelaide.china-consulate.gov.cn"))  # gov.cn not crossed
+
+    def test_inherited_status_is_not_official_on_its_own(self):
+        from tw import evidence, knowledge
+        con = store.connect(":memory:")
+        knowledge.put(con, "source", "esteri.it", {"tier": 0, "official_site": True, "government": True,
+                                                   "government_via_parent": "esteri.it"}, ["x"], 7, "wikidata_parent")
+        s = evidence.annotate(CFG, con, [{"url": "https://consolato.esteri.it/x", "accessed": "2026-11-18"}], "t")[0]
+        self.assertEqual((s["official"], s["official_inherited"]), (False, True))
+
+    def test_country_flag_is_direct_and_separate(self):
+        self.assertTrue(wikidata.is_government({"gov": False, "country": True}))
+        self.assertFalse(wikidata.is_government({"gov": False, "country": False}))
 
     def test_registry_down_is_fail_closed(self):
         def down(cfg, d):
             raise sources.SourceError("timeout")
         with mock.patch.object(wikidata, "by_site", down):
             with self.assertRaises(sources.SourceError):
-                wikidata.government_parent(CFG, "adelaide.china-consulate.gov.cn")
+                wikidata.government_parent(CFG, "consolato.esteri.it")
 
 
 class ProvisionalFaresTest(unittest.TestCase):

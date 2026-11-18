@@ -36,6 +36,13 @@ languages: []
 region_experience: []        # regions already visited
 past_trips: []               # what made past trips great or bad
 rhythm: null                 # one_base | few_bases | moving_often
+flights:                     # only from the user's own words
+  max_layover_h: null
+  prefer_shorter_layovers: null
+  max_stops: null
+  max_total_h: null            # per direction
+  avoid_self_transfer: null    # separate tickets with own transfer
+  avoid_overnight_layover: null
 deferred: []                 # fields the user left to us ("decidi tu"): {key, date, evidence}
 weights: {}                  # overrides scoring.default_weights
 learned: []                  # {date, rule, previous, reason, evidence}

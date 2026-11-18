@@ -20,7 +20,9 @@ def verify_source(cfg, con, url, name=None, iata=None, now=None):
     try:
         v = wikidata.verify(cfg, url, name, iata)
         prov = [f"https://www.wikidata.org/wiki/{v['qid']}"] if v["qid"] else [cfg["wikidata"]["api"]]
-        if v["tier"] or v["government"]:
+        if v.get("government_via_parent"):
+            verified_by, ttl = "wikidata_parent", r["inherited_ttl_days"]
+        elif v["tier"] or v["government"]:
             verified_by, ttl = "wikidata", r["verify_ttl_days"]
         else:
             v["note"] = ("registry did not resolve this domain to an airline or travel site; "
@@ -105,6 +107,7 @@ def resolve(cfg, con, url, now=None):
     if not k or not k["fresh"]:
         return None
     return {"key": k["key"], "tier": k["value"]["tier"], "verified_by": k["verified_by"],
+            "government_inherited": bool(k["value"].get("government_via_parent")),
             "official_site": bool(k["value"].get("official_site")), "government": bool(k["value"].get("government"))}
 
 

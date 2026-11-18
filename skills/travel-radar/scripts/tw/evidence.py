@@ -30,7 +30,10 @@ def annotate(cfg, con, sources, where, now=None):
         v = reliability.resolve(cfg, con, s["url"], now) if con is not None else None
         out.append({"url": s["url"], "accessed": str(s["accessed"]),
                     "outlet": registrable(reliability.host(s["url"])),
-                    "official": bool(v and v["government"]), "official_site": bool(v and v["official_site"]),
+                    # an inherited (parent-domain) government verdict never counts as official on its own
+                    "official": bool(v and v["government"] and not v.get("government_inherited")),
+                    "official_inherited": bool(v and v["government"] and v.get("government_inherited")),
+                    "official_site": bool(v and v["official_site"]),
                     "verified": v is not None})
     if errors:
         raise schema.ValidationError(errors)

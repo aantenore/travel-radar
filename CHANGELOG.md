@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.0 - 2026-11-18
+
+- Flight preferences in the profile (`flights.max_layover_h`, `prefer_shorter_layovers`, `max_stops`, `max_total_h`, `avoid_self_transfer`, `avoid_overnight_layover`) and a `flights` step in `tw profile gaps`.
+- Itinerary-level observations: `tw watch record --itinerary` (segments, layovers, total time per direction) validated by code, with layover durations and overnight flags computed.
+- `tw itineraries --watch`: hard filters shown as conflicts, ranking by price, total time and layover penalty (config); cheapest overall vs cheapest that fits. Alerts and advise count only fitting itineraries unless the watch has a `flight_override` with the user's words.
+- Skill: flight discovery on meta-search, then confirmation on verified airline sites via the browser (tier 1, independent confirmation), combinations (nearby airports, same-city airports via `airport_group` knowledge, open-jaw, hub + rail), self-transfer risk; flights always shown with layovers and total time.
+- Anti-bot pages:
+  - generic detection (`tw sources check-page`, markers in config);
+  - `blocked --challenge` with backoff (`access.blocked_backoff_hours`);
+  - new outcome `ok_after_user_challenge`;
+  - `tw sources plan --attended` puts challenge-gated sites last as user handoffs with a per-site search cap; unattended plans exclude them;
+  - challenges are never solved or bypassed.
+- Security (review of 0.9.0):
+  - government status is inherited only within the page's registrable domain;
+  - existing non-government matches are not replaced;
+  - country portals count only via direct P31;
+  - inherited verdicts have a shorter TTL and are not "official" on their own.
+  - Side effect: a consulate under a government second-level domain (e.g. `*.gov.cn`) now needs `tw sources confirm --government`.
+
 ## 0.9.0 - 2026-11-18
 
 Fixes from the live end-to-end test.

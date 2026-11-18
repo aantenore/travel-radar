@@ -163,6 +163,25 @@ Travel Radar keeps no fixed list of good sites, airlines, booking windows or ent
   - checking baggage, layovers and self-transfer.
   You book. It never does.
 
+## Flights that fit you, not just the cheapest
+
+- **Your flight preferences**: maximum layover, shorter-is-better, maximum stops and travel time, no self-transfer, no overnight layovers. They are asked when the flight search starts and learned only from your words.
+- **Every fare with its shape**: carriers, segments, layover airports and durations, total time per direction. Code checks it is consistent and computes layover length and overnight flags.
+- **Fit before price**: options that break your limits are shown with the reason, never hidden. Ranking mixes price, total time and a layover penalty. You see "cheapest overall" next to "cheapest that fits you". Alerts and buy/wait advice count only fares that fit, unless you say otherwise.
+- **Best combinations**:
+  - discovery on meta-search sites;
+  - then the top airlines' own sites, verified at runtime and searched in the browser with cookies declined and no login. An airline fare also confirms the meta-search fare independently;
+  - also: other airports of your city or the destination city, open-jaw and multi-city, hub plus train;
+  - self-transfer and separate tickets are always flagged with their risk.
+
+### Sites that block automated access
+
+Some sites (Skyscanner, for example) show an anti-bot check (CAPTCHA). Travel Radar never solves, clicks or bypasses these, and never uses solver services or proxies.
+- **In a session where you are present** it tells you which site and page are open in the browser and lets you solve the check yourself. It then reads the results, with a small cap on searches per site.
+- **In automatic rounds** the site is recorded as blocked, paused for a while, and left out.
+
+Check each site's terms of service: some do not allow automated access at all.
+
 ## Park, resume, ideas, export
 
 - **Park a trip.** "Let's put the China trip on hold until March" pauses the trip and its watches, nothing is deleted, and stores a snapshot. With a date, the monitoring round reminds you when it's time to look again.

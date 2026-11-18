@@ -94,6 +94,9 @@ def watch(w):
         e.append(f"watch {w.get('id')}: not confirmed by the user; create it with `tw watch add <file> --confirmed-by-user \"<user's yes>\"`")
     if w.get("haul") is not None and w["haul"] not in ("long", "short"):
         e.append(f"watch {w.get('id')}: haul must be long or short")
+    fo = w.get("flight_override")
+    if fo is not None and not (isinstance(fo, dict) and str(fo.get("evidence") or "").strip()):
+        e.append(f"watch {w.get('id')}: flight_override needs the user's words as evidence")
     if w.get("market") is not None and w["market"] not in ("international", "domestic"):
         e.append(f"watch {w.get('id')}: market must be international or domestic")
     for k in ("peak", "one_way"):
@@ -120,6 +123,8 @@ PROFILE_FIELDS = {
     "interests": (list,), "accommodation_style": (str,), "budget_daily_eur": NUM, "comfort_level": (str,),
     "dietary_needs": (list,), "mobility_limits": (list,), "languages": (list,), "region_experience": (list,),
     "past_trips": (list,), "rhythm": (str,),
+    "flights.max_layover_h": NUM, "flights.prefer_shorter_layovers": (bool,), "flights.max_stops": (int,),
+    "flights.max_total_h": NUM, "flights.avoid_self_transfer": (bool,), "flights.avoid_overnight_layover": (bool,),
 }
 
 TRIP_FACT_HINTS = {"dates", "dates_flexibility_days", "trip_budget_eur", "party_size", "must_include", "must_avoid",

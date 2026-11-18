@@ -177,6 +177,22 @@ Date: 2026-11-18 · Status: accepted
 - **0.9.0**: government detection also accepts a country item's own official website (e.g. gov.uk) and subdomains of a verified government parent domain (e.g. a consulate under gov.cn), at most `government_parent_depth` levels up, fail-closed.
 - **Consequences**: no country rules in code; some official sites are not in the registry (for example a foreign ministry's travel-advice site on its own domain) and need `tw sources confirm --government`. International health bodies may not be classified as government on the registry and then count as non-official.
 
+### ADR-9. Itinerary-level fit and attended challenge handoff
+Date: 2026-11-18 · Status: accepted
+- **Itineraries**: the model reports the itinerary shape as shown on the page; code validates it (contiguous segments, layover airports, layover durations from local times, total time) and computes overnight flags.
+  - Hard filters come from the profile's `flights` preferences and are shown as conflicts, never hidden.
+  - Ranking weights live in config.
+  - Alerts and advise consider only fitting itineraries unless the watch carries a `flight_override` with the user's words. Fares without itinerary data follow `flights.unknown_fit`.
+- **Anti-bot challenges**: detection is generic (text markers in config). The system never interacts with a challenge.
+  - Unattended runs record `blocked` and back off; challenge-gated sites are excluded from unattended plans.
+  - In attended sessions they come last as handoffs: the user solves the challenge themselves, then results are read with a per-site search cap and recorded `ok_after_user_challenge`.
+  - Terms of service may still forbid automated access; this is stated in the README.
+- **Government inheritance, tightened after security review**:
+  - a subdomain inherits government status only from a parent inside its own registrable domain (no public-suffix crossing; registrable domain from a heuristic, not the full PSL);
+  - an existing match to a non-government entity is never replaced;
+  - country portals count only via direct P31;
+  - inherited verdicts have a shorter TTL and never count as official on their own (`official_inherited`).
+
 ## 8. Behaviour scenarios (manual check or model grader)
 
 | # | Input | Expected |
@@ -205,6 +221,9 @@ Date: 2026-11-18 · Status: accepted
 | 26 | Border-zone permit not obtainable before departure | Option excluded with the reason |
 | 27 | User says "decidi tu" about budget | Deferred, assumption stated, never asked again |
 | 28 | Experience link on an unverified ticket site | Shown as "unverified link" |
+| 29 | Cheapest fare has a 14h layover, user max 4h | Shown as cheapest overall with the conflict; advise and alerts use the cheapest that fits |
+| 30 | CAPTCHA in a scheduled round | `blocked --challenge`, site backed off, no interaction with the challenge |
+| 31 | CAPTCHA with the user present | Handoff: user solves it, results read, `ok_after_user_challenge`, search cap respected |
 | 23 | Booking window research older than its TTL | `research_needed` from advise; fallback marked heuristic until re-researched |
 | 16 | WAIT verdict during the first 14 days | Logged (`tw verdicts`), not notified; confirmed price alerts and safety/entry changes are still notified |
 | 12 | Model finds an airline sale ending tomorrow, advisor says WAIT | Both shown: verdict + explicit disagreement with source; user decides |

@@ -1,4 +1,5 @@
 """Price observations, checks and alerts history (SQLite)."""
+import json
 import sqlite3
 from datetime import datetime, timezone
 
@@ -7,7 +8,7 @@ CREATE TABLE IF NOT EXISTS observations (
   id INTEGER PRIMARY KEY, watch_id TEXT NOT NULL, ts TEXT NOT NULL,
   price_eur REAL NOT NULL, depart TEXT, return_date TEXT, carrier TEXT, stops INTEGER,
   source TEXT NOT NULL, url TEXT NOT NULL, note TEXT, tier INTEGER, excerpt TEXT, extractor TEXT,
-  verified_by TEXT, fare_status TEXT);
+  verified_by TEXT, fare_status TEXT, itinerary TEXT);
 CREATE TABLE IF NOT EXISTS checks (
   id INTEGER PRIMARY KEY, watch_id TEXT NOT NULL, ts TEXT NOT NULL, status TEXT NOT NULL, note TEXT);
 CREATE TABLE IF NOT EXISTS alerts (
@@ -28,7 +29,8 @@ CREATE TABLE IF NOT EXISTS knowledge (
 CREATE TABLE IF NOT EXISTS access_stats (
   domain TEXT NOT NULL, method TEXT NOT NULL, ok INTEGER NOT NULL DEFAULT 0, no_data INTEGER NOT NULL DEFAULT 0,
   blocked INTEGER NOT NULL DEFAULT 0, error INTEGER NOT NULL DEFAULT 0, last_success TEXT, last_attempt TEXT,
-  last_note TEXT, PRIMARY KEY (domain, method));
+  last_note TEXT, last_outcome TEXT, challenge INTEGER NOT NULL DEFAULT 0, last_blocked TEXT,
+  PRIMARY KEY (domain, method));
 CREATE INDEX IF NOT EXISTS ix_obs ON observations(watch_id, ts);
 CREATE INDEX IF NOT EXISTS ix_chk ON checks(watch_id, ts);
 """
@@ -52,23 +54,27 @@ def _migrate(con):
     """Add columns introduced after 0.2.0 to existing databases; record the first-use date."""
     cols = {r["name"] for r in con.execute("PRAGMA table_info(observations)")}
     for name, typ in (("tier", "INTEGER"), ("excerpt", "TEXT"), ("extractor", "TEXT"), ("verified_by", "TEXT"),
-                      ("fare_status", "TEXT")):
+                      ("fare_status", "TEXT"), ("itinerary", "TEXT")):
         if name not in cols:
             con.execute(f"ALTER TABLE observations ADD COLUMN {name} {typ}")
+    acols = {r["name"] for r in con.execute("PRAGMA table_info(access_stats)")}
+    for name, typ in (("last_outcome", "TEXT"), ("challenge", "INTEGER NOT NULL DEFAULT 0"), ("last_blocked", "TEXT")):
+        if name not in acols:
+            con.execute(f"ALTER TABLE access_stats ADD COLUMN {name} {typ}")
     con.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('first_use', ?)", (now_iso(),))
     con.commit()
 
 
 def add_observation(con, watch_id, price_eur, source, url, depart=None, return_date=None,
                     carrier=None, stops=None, note=None, ts=None, tier=None, excerpt=None, extractor=None,
-                    verified_by=None, fare_status=None):
+                    verified_by=None, fare_status=None, itinerary=None):
     if not url:
         raise ValueError("source url is required")
     con.execute(
         "INSERT INTO observations(watch_id, ts, price_eur, depart, return_date, carrier, stops, source, url, note,"
-        " tier, excerpt, extractor, verified_by, fare_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " tier, excerpt, extractor, verified_by, fare_status, itinerary) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (watch_id, ts or now_iso(), price_eur, depart, return_date, carrier, stops, source, url, note,
-         tier, excerpt, extractor, verified_by, fare_status))
+         tier, excerpt, extractor, verified_by, fare_status, json.dumps(itinerary) if itinerary else None))
     con.commit()
 
 

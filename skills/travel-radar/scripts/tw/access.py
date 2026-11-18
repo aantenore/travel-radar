@@ -8,25 +8,44 @@ when a site starts blocking or rendering client-side.
 import json
 import os
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import schema, sources, store
 from .wikidata import registrable
 
-OUTCOMES = ("ok", "no_data", "blocked", "error")
+OUTCOMES = ("ok", "no_data", "blocked", "error", "ok_after_user_challenge")
 
 
-def record(con, domain, method, outcome, note=None, now=None):
+def detect_challenge(cfg, text):
+    """Generic anti-bot / CAPTCHA page detection from page text (markers in config).
+    Returns the matched marker or None. Detection only: challenges are never solved here."""
+    low = (text or "").lower()
+    for m in cfg["access"]["challenge_markers"]:
+        if m.lower() in low:
+            return m
+    return None
+
+
+def record(con, domain, method, outcome, note=None, now=None, challenge=False):
+    """`challenge=True` with `blocked` = an anti-bot page was shown; `ok_after_user_challenge` =
+    the user solved it in an attended session. Both mark the source as challenge-gated."""
     if outcome not in OUTCOMES:
         raise schema.ValidationError([f"outcome must be one of {OUTCOMES}"])
     ts = (now or datetime.now(timezone.utc)).replace(microsecond=0).isoformat()
     d = registrable(domain)
     con.execute("INSERT OR IGNORE INTO access_stats(domain, method) VALUES (?,?)", (d, method))
-    con.execute(f"UPDATE access_stats SET {outcome}={outcome}+1, last_attempt=?, last_note=?"
-                + (", last_success=?" if outcome == "ok" else "") + " WHERE domain=? AND method=?",
-                (ts, note, ts, d, method) if outcome == "ok" else (ts, note, d, method))
+    col = "ok" if outcome == "ok_after_user_challenge" else outcome
+    sets = [f"{col}={col}+1", "last_attempt=?", "last_note=?", "last_outcome=?"]
+    args = [ts, note, outcome]
+    if outcome in ("ok", "ok_after_user_challenge"):
+        sets.append("last_success=?"); args.append(ts)
+    if outcome == "blocked":
+        sets.append("last_blocked=?"); args.append(ts)
+    if outcome == "ok_after_user_challenge" or (outcome == "blocked" and challenge):
+        sets.append("challenge=challenge+1")
+    con.execute(f"UPDATE access_stats SET {', '.join(sets)} WHERE domain=? AND method=?", (*args, d, method))
     con.commit()
-    return {"domain": d, "method": method, "outcome": outcome}
+    return {"domain": d, "method": method, "outcome": outcome, "challenge": bool(challenge) or outcome == "ok_after_user_challenge"}
 
 
 def stats(con):
@@ -46,25 +65,52 @@ def _score(cfg, row):
     return (row["ok"] + 1) / (n + 2), n          # Laplace-smoothed success rate
 
 
-def plan(cfg, con, candidates, browser=False):
-    """Ordered attempt plan for verified candidate domains. `candidates` = [(domain, tier)]."""
+def _gated(row):
+    """Challenge-gated: an anti-bot page was met and no plain success happened since."""
+    return bool(row and row.get("challenge") and row.get("last_outcome") != "ok")
+
+
+def _in_backoff(cfg, row, now):
+    if not row or row.get("last_outcome") != "blocked" or not row.get("last_blocked"):
+        return None
+    until = datetime.fromisoformat(row["last_blocked"]) + timedelta(hours=cfg["access"]["blocked_backoff_hours"])
+    return until.isoformat() if now < until else None
+
+
+def plan(cfg, con, candidates, browser=False, attended=False, now=None):
+    """Ordered attempt plan for verified candidate domains. `candidates` = [(domain, tier)].
+    Unattended: challenge-gated sources are excluded and recently blocked ones backed off.
+    Attended: challenge-gated sources come last, as user handoffs with a per-site search cap."""
+    now = now or datetime.now(timezone.utc)
     rows = {(r["domain"], r["method"]): r for r in stats(con)}
-    steps = []
+    gated_domains = {d for (d, _), r in rows.items() if _gated(r)}   # a challenge on one method gates the site
+    steps, skipped = [], []
     methods = available_methods(cfg, browser)
     for domain, tier in candidates:
         d = registrable(domain)
         for m in methods:
             if m.startswith("api:"):
                 continue
-            score, n = _score(cfg, rows.get((d, m)))
-            steps.append({"domain": d, "tier": tier, "method": m, "success_rate": round(score, 3), "attempts": n})
+            row = rows.get((d, m))
+            score, n = _score(cfg, row)
+            step = {"domain": d, "tier": tier, "method": m, "success_rate": round(score, 3), "attempts": n}
+            if d in gated_domains:
+                if not attended or m != "browser":
+                    skipped.append({**step, "reason": "challenge-gated: only in attended sessions, via the browser"})
+                    continue
+                step.update(handoff="user_solves_challenge", max_searches_this_session=cfg["access"]["max_attended_searches_per_site"])
+            elif _in_backoff(cfg, row, now):
+                skipped.append({**step, "reason": f"blocked recently: back off until {_in_backoff(cfg, row, now)}"})
+                continue
+            steps.append(step)
     for m in methods:
         if m.startswith("api:"):
             score, n = _score(cfg, rows.get((m, m)))
             steps.append({"domain": m, "tier": 2, "method": m, "success_rate": round(score, 3), "attempts": n})
     order = {m: i for i, m in enumerate(methods)}
-    steps.sort(key=lambda s: (-s["success_rate"], s["tier"], order[s["method"]]))
-    return {"methods_available": methods, "steps": steps[: cfg["access"]["max_plan_steps"]]}
+    steps.sort(key=lambda s: (bool(s.get("handoff")), -s["success_rate"], s["tier"], order[s["method"]]))
+    return {"methods_available": methods, "attended": attended,
+            "steps": steps[: cfg["access"]["max_plan_steps"]], "skipped": skipped}
 
 
 # ---- API adapters (opt-in: only with a key the user configured) ----

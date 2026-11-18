@@ -51,6 +51,7 @@ reliability:
   unverified_ttl_days: 1       # registry unreachable/unresolved: retry soon; prices stay context only
   independent_ttl_days: 14     # verdicts confirmed by independent sources found at runtime
   independent_min_sources: 2   # distinct sites, none of them the candidate itself
+  inherited_ttl_days: 7        # government status inherited from a parent domain (lower trust)
   # A price alert fires only when independently confirmed within this window: another tier 1/2
   # site, or the same site re-read by an independent extractor (never the same fare-reader twice).
   independent_extractors: [main]
@@ -83,7 +84,24 @@ access:
   api_adapters:                  # used only when the env var holds a key the user configured
     serpapi: {env: SERPAPI_KEY, endpoint: "https://serpapi.com/search.json", engine: google_flights}
   prior_success: 0.5             # assumed success rate of an untried (source, method)
+  blocked_backoff_hours: 24      # skip a (source, method) this long after it blocked
+  max_attended_searches_per_site: 3   # searches per site in one attended session after a user-solved challenge
+  # Generic anti-bot / CAPTCHA page text (UI patterns, not site knowledge). Detection only, never solving.
+  challenge_markers: [captcha, px-captcha, recaptcha, hcaptcha, cf-challenge, "are you a robot", "are you a human",
+                      "verify you are human", "unusual traffic", "sei una persona o un robot", "non sono un robot",
+                      "press and hold", "access denied"]
   max_plan_steps: 6
+
+# Itinerary rules (shape of a fare). Hard filters come from the profile's `flights` preferences.
+flights:
+  night_window_h: [0, 5]          # a layover covering these local hours counts as overnight
+  layover_tolerance_min: 5        # stated vs computed layover duration
+  unknown_fit: exclude            # fares without itinerary data when the user has flight preferences
+  ranking:                        # rank_cost = price*norm_price + time*norm_time + layover penalty
+    price: 0.6
+    time: 0.4
+    layover_penalty_per_h: 0.02
+    shorter_layover_factor: 2.0   # applied when the user prefers shorter layovers
 
 # Fares far ahead are often unpublished placeholders or full fares: kept, but ignored by advise and alerts.
 # Market of a watch: international (default) or domestic, set on the watch from the route.
@@ -159,6 +177,9 @@ intake:
     requirements: {traveller.nationality: 10, traveller.passports: 9, traveller.residence_country: 6}
     experiences: {interests: 9, languages: 5, mobility_limits: 5, region_experience: 4, past_trips: 3, dietary_needs: 3}
     monitor: {constraints.origin_airports: 9, constraints.budget_flight_eur: 8, trip.dates_flexibility_days: 6}
+    flights: {constraints.origin_airports: 10, flights.max_layover_h: 9, flights.max_stops: 8, flights.prefer_shorter_layovers: 6,
+              flights.avoid_self_transfer: 6, flights.avoid_overnight_layover: 5, flights.max_total_h: 4,
+              constraints.budget_flight_eur: 7}
 
 rollout:
   shadow_days: 14   # from first use: verdicts are logged and shown on request, not pushed as notifications

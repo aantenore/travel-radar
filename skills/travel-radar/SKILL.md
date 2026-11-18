@@ -30,6 +30,8 @@ User data lives in the data home (`$TRAVEL_RADAR_HOME`, default `~/.travel-radar
 | Watches | `tw watch add <draft> --confirmed-by-user "<user's yes>" | list | due | record | checked | evaluate | report` |
 | Trip lifecycle | `tw trip list | set <id> --to <status> [--option a] | park <id> --reason "..." [--until DATE] | resume <id> | done <id>` |
 | Idea inbox | `tw idea add "<place or wish>" [--best-months 4,5] | list | checked <id> | promote <id> --trip <trip-id> | drop <id>` |
+| Rank recorded itineraries vs flight preferences | `tw itineraries --watch <id> [--days 7]` → cheapest overall vs cheapest that fits you |
+| Anti-bot / CAPTCHA page? | save the page text, `tw sources check-page --text-file <file>` |
 | Buy or wait | `tw advise --watch <id>` / history: `tw verdicts --watch <id>` |
 | Verify a price source (runtime, cached with TTL) | `tw sources verify --url <url> [--name "<entity>"] [--iata <code>]` |
 | Registry can't decide? Confirm with independent sites | `tw sources confirm --url <url> --tier 1|2 [--scope path] --evidence <site1> --excerpt "<text naming the domain>" --evidence <site2> --excerpt "..."` |
@@ -66,7 +68,7 @@ Read the profile (`tw profile show`) at the start of every request. **Never edit
    - authenticity 1-5 and `max_transfer_h`: reasoned judgement with sources.
    Write the metrics into `trip.yaml` (schema below), with `sources` for every number. `tw score` rejects metrics without a source or out of range.
 4. **Score**: `tw score`. Drop `excluded` options. Use `conflicts` and `missing` for each option.
-5. **Present**: at most 3 options. For each: why it fits the user, period, flights found (price + link + date), rough itinerary with 2-3 concrete local places (with source), experiences that fit the profile with how to book them (section 11), a short **geopolitical situation** block with trend and sources (section 9), the requirements to act on with deadlines (section 10), risks. Flag flight options whose route crosses closed or risky airspace. Flight prices only from tier 1/2 sources with exact dates (section 8). If asked whether to book now or wait, use section 7.
+5. **Present**: at most 3 options. For each: why it fits the user, period, flights found (price + link + date), for every flight: price **with layover airports and durations and total time per direction** (from `tw itineraries`), the cheapest overall vs the cheapest that fits the user's flight preferences, rough itinerary with 2-3 concrete local places (with source), experiences that fit the profile with how to book them (section 11), a short **geopolitical situation** block with trend and sources (section 9), the requirements to act on with deadlines (section 10), risks. Flag flight options whose route crosses closed or risky airspace. Flight prices only from tier 1/2 sources with exact dates (section 8). If asked whether to book now or wait, use section 7.
 6. **Request conflicts with the profile** (`conflicts` not empty) and no explicit override → show the requested option with the conflicts spelled out **plus** 1-2 conforming alternatives (same idea, other period or place). With an explicit override → proceed without unrequested alternatives.
 7. **User picks an option** → `tw trip set <id> --to chosen --option <option id>`; record booking deadlines you researched (visa lead time, train ticket release dates…) in `deadlines` with source; full dossier `<home>/trips/<id>/dossier.yaml` covering every item of `tw checklist`; run `tw dossier-check` until `issues` is empty or only declared `unknown` items remain. Report blockers and warnings.
 8. **Monitoring: propose, never create on your own** (section 2.1). Offer `tw export ics` / `tw export brief`.
@@ -195,6 +197,14 @@ Keep it cheap:
   - Pay with a method that offers protection; keep the booking confirmation.
   - The user books. Never book, log in or enter payment data.
 
+## 7b. Finding the best flight combinations
+
+When the flight step starts, run `tw profile gaps --step flights` (layover length, stops, self-transfer, overnight, total time) and ask what matters.
+1. **Discover** on meta-search pages (verified tier 2) for exact dates: note carriers and itinerary shapes (stops, layover airports and durations, total time). Record each fare with `--itinerary` (segments with local times, layovers, total_min per direction): code checks consistency and computes layover length and overnight flags.
+2. **Shortlist** with `tw itineraries --watch <id>`: hard filters from the profile (`flights.*`) are shown as conflicts, never hidden; ranking mixes price, total time and a layover penalty (stronger if the user prefers shorter layovers). Alerts and advise use only itineraries that fit, unless the watch has a `flight_override` with the user's words.
+3. **Confirm on airline sites**: for the top carriers of the shortlist, `tw sources verify --url <airline site> --name "<airline>" --iata <code>` (tier 1), then search the airline's own site in the browser: decline non-essential cookies, fill only route, dates and passengers, never log in or enter personal data. Record with `--extractor main`: the airline fare is tier 1 and an independent confirmation of the meta-search fare.
+4. **Explore combinations** without route knowledge: other origin airports in the profile; other airports of the destination city (research them, store with `tw knowledge put --kind airport_group --key <city> --value '{"airports":["AAA","BBB"]}' --source <url> --ttl-days 180`); open-jaw or multi-city when the itinerary is a loop; hub plus train when the option's places suggest it. Always flag self-transfer and separate tickets with their risk (missed connection not protected).
+
 ## 8. Price sources and access
 
 Always current: which sites are reliable, which airlines fly a route, booking windows and entry rules are **discovered at runtime and verified by code**, never taken from a fixed list.
@@ -202,7 +212,10 @@ Always current: which sites are reliable, which airlines fly a route, booking wi
 - `tw sources verify --url <url> --name "<entity>" [--iata <code>]` decides the tier from Wikidata: airline with a matching official website → tier 1; online travel agency / metasearch / travel website with a matching official website → tier 2; otherwise context only. Verdicts are cached with a TTL and re-verified when they expire. There are no site lists anywhere. If Wikidata is unreachable or does not resolve the site, the source is `unverified`: its prices are context only and cannot be recorded. When a flight search lives under a path of a larger site, verify and confirm the full URL with its path: path-scoped verdicts (`tw sources confirm --scope path`) cover only that path, never the rest of the domain. If a cheap second check is possible, find now at least two independent sites (not the candidate itself) whose text names the domain as the official airline or travel search site, and run `tw sources confirm`; otherwise record the attempt as `no_data` with the reason.
 - Only tier 1/2 pages with exact `--depart`/`--return` dates inside the watch window become prices. Blog posts, "flights from X" route pages, newsletters and averages are context only.
 - Access methods are tried in the order `tw sources plan` returns, learned from recorded outcomes: client-rendered pages that return empty shells to `webfetch` will drift to `browser` or an API adapter automatically. API adapters run only if the user set the key in their environment; never suggest creating accounts.
-- Respect `research.max_fetches_per_watch` and `research.max_subagent_calls_per_run`. No bulk scraping. Captcha, login walls or blocked access → record `blocked`, move on.
+- Respect `research.max_fetches_per_watch` and `research.max_subagent_calls_per_run`. No bulk scraping. Login walls or blocked access → record `blocked`, move on.
+- **Anti-bot pages (CAPTCHA, "are you a robot", challenge frames)**: never click, type into, solve or bypass any part of a challenge; never use solver services or proxies. Check suspicious pages with `tw sources check-page`.
+  - **Unattended round**: `tw sources record-access --domain <d> --method browser --outcome blocked --challenge --note "<what was shown>"` and move on; the source is backed off (`access.blocked_backoff_hours`) and challenge-gated sources are left out of unattended plans.
+  - **Attended session** (the user is here; pass `--attended` to `tw sources plan`): gated sources come last as `handoff` steps. Tell the user which site and page are open in the browser and ask them to solve the challenge themselves. When they say it is done, re-read the page: still challenged → record `blocked --challenge`; OK → read the results, record fares with `--extractor main`, then `tw sources record-access ... --outcome ok_after_user_challenge`. At most `max_searches_this_session` searches on that site.
 
 ## 9-11. Geopolitics, requirements, experiences
 

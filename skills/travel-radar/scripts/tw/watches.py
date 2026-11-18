@@ -119,7 +119,9 @@ def evaluate(cfg, con, w, now=None):
     (not stored) so the monitoring round re-checks them. `suspect` = implausible drop."""
     now = now or datetime.now(timezone.utc)
     a = cfg["alerts"]
+    from . import itinerary
     obs = store.observations(con, w["id"])           # provisional fares excluded
+    obs, _ = itinerary.fit_filter(cfg, config.profile(cfg), w, obs)   # only itineraries that fit the traveller
     if not obs:
         return []
     last = obs[-1]

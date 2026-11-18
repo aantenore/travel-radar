@@ -158,12 +158,14 @@ def describe(cfg, qids):
     vals = " ".join(f"wd:{q}" for q in qids if re.fullmatch(r"Q\d+", q))
     air = " ".join(f"wd:{q}" for q in w["airline_classes"])
     trav = " ".join(f"wd:{q}" for q in w["travel_classes"])
-    gov = " ".join(f"wd:{q}" for q in w["government_classes"] + w.get("country_classes", []))
-    q = (f"SELECT ?item ?itemLabel ?itemDescription ?site ?iata ?air ?trav ?gov WHERE {{ VALUES ?item {{ {vals} }} "
+    gov = " ".join(f"wd:{q}" for q in w["government_classes"])
+    ctry = " ".join(f"wd:{q}" for q in w.get("country_classes", [])) or "wd:Q0"
+    q = (f"SELECT ?item ?itemLabel ?itemDescription ?site ?iata ?air ?trav ?gov ?ctry WHERE {{ VALUES ?item {{ {vals} }} "
          f"OPTIONAL {{ ?item wdt:P856 ?site }} OPTIONAL {{ ?item wdt:P229 ?iata }} "
          f"BIND(EXISTS {{ ?item (wdt:P31|wdt:P279)/wdt:P279* ?a . VALUES ?a {{ {air} }} }} AS ?air) "
          f"BIND(EXISTS {{ ?item (wdt:P31|wdt:P279)/wdt:P279* ?t . VALUES ?t {{ {trav} }} }} AS ?trav) "
          f"BIND(EXISTS {{ ?item (wdt:P31|wdt:P279)/wdt:P279* ?g . VALUES ?g {{ {gov} }} }} AS ?gov) "
+         f"BIND(EXISTS {{ ?item wdt:P31 ?c . VALUES ?c {{ {ctry} }} }} AS ?ctry) "
          f'SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }} }}')
     out = {}
     for b in _sparql(cfg, q):
@@ -178,6 +180,7 @@ def describe(cfg, qids):
         e["airline"] |= b["air"]["value"] == "true"
         e["travel"] |= b["trav"]["value"] == "true"
         e["gov"] |= b.get("gov", {}).get("value") == "true"
+        e["country"] = e.get("country", False) or b.get("ctry", {}).get("value") == "true"
     return out
 
 
@@ -213,17 +216,27 @@ def official(url, entities):
         if not ms:
             continue
         m = ms[0]
-        if best is None or (m == "exact" and best["match"] != "exact") or (e["gov"] and not best["government"]):
-            best = {"entity": qid, "label": e["label"], "match": m, "scope": ms[1], "government": e["gov"]}
+        g = is_government(e)
+        if best is None or (m == "exact" and best["match"] != "exact") or (g and not best["government"]):
+            best = {"entity": qid, "label": e["label"], "match": m, "scope": ms[1], "government": g}
     return best
 
 
 def parent_hosts(host, depth):
-    """adelaide.china-consulate.gov.cn -> [china-consulate.gov.cn, gov.cn] (never a bare TLD)."""
+    """Parents of `host` that stay inside its registrable domain (never crossing a public-suffix
+    boundary): consolato.esteri.it -> [esteri.it]; adelaide.china-consulate.gov.cn ->
+    [china-consulate.gov.cn]; gov.cn is never a parent of a site registered under it.
+    The registrable domain comes from a heuristic, not the full Public Suffix List."""
     labels = host.lower().split(".")
     if labels and labels[0] == "www":
         labels = labels[1:]
-    out = [".".join(labels[i:]) for i in range(1, len(labels)) if len(labels) - i >= 2]
+    reg = registrable(".".join(labels))
+    out = []
+    for i in range(1, len(labels)):
+        cand = ".".join(labels[i:])
+        if not (cand == reg or cand.endswith("." + reg)):
+            break
+        out.append(cand)
     return out[:depth]
 
 
@@ -236,6 +249,11 @@ def government_parent(cfg, host):
         if off and off["government"] and off["match"] == "exact":
             return {"parent": parent, "entity": off["entity"], "label": off["label"]}
     return None
+
+
+def is_government(entity):
+    """Government body (class chain), or a country item (direct P31) whose own website it is."""
+    return bool(entity.get("gov") or entity.get("country"))
 
 
 def verify(cfg, url, name=None, iata=None):
@@ -257,7 +275,7 @@ def verify(cfg, url, name=None, iata=None):
     tier, qid, label, match, scope, signal = classify(url, ents, cfg["wikidata"].get("travel_description_terms", ()))
     off = official(url, ents)
     gov_parent = None
-    if not (off and off["government"] and off["match"] == "exact"):
+    if off is None:     # never replace an existing exact/brand match to a non-government entity
         gov_parent = government_parent(cfg, domain)
         if gov_parent:
             off = {"entity": gov_parent["entity"], "label": gov_parent["label"], "match": "exact",
